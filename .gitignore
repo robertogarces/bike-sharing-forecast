@@ -10,8 +10,9 @@ build/
 .venv/
 venv/
 
-# Data (tracked by DVC, not Git)
-data/
+# Data contents (tracked by DVC, not Git)
+data/raw/
+data/processed/
 
 # Artifacts (tracked by DVC, not Git)
 artifacts/
