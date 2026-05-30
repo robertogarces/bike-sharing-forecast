@@ -1,0 +1,18 @@
+split_ratio: 0.8
+
+lags: [1, 2, 3, 8, 24, 168]
+
+rolling_windows: [24, 168]
+
+target: log_cnt
+
+drop_cols:
+  - atemp
+  - cnt_lag_9
+  - cnt_lag_10
+  - season
+  - mnth_sin
+  - mnth_cos
+  - workingday
+  - holiday
+  - windspeed

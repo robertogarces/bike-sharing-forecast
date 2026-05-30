@@ -1,5 +1,6 @@
 defaults:
   - dataset: kaggle
+  - features: default
   - _self_
 
 project: bike-sharing-forecast
