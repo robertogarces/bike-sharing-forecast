@@ -1,6 +1,7 @@
 defaults:
   - dataset: kaggle
   - features: default
+  - model: lgbm
   - _self_
 
 project: bike-sharing-forecast

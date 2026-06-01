@@ -1,0 +1,45 @@
+# configs/model/lgbm.yaml
+n_trials: 50
+random_state: 42
+tune: true                    # false = skip Optuna, load best_params.yaml
+best_params_path: configs/model/best_params.yaml
+
+# Fixed params (not tuned)
+lgbm:
+  objective: regression
+  metric: rmse
+  verbosity: -1
+  n_jobs: -1
+
+# Optuna search space
+search_space:
+  num_leaves:
+    low: 20
+    high: 300
+  max_depth:
+    low: 3
+    high: 12
+  learning_rate:
+    low: 0.01
+    high: 0.3
+    log: true
+  n_estimators:
+    low: 100
+    high: 1000
+  min_child_samples:
+    low: 10
+    high: 100
+  subsample:
+    low: 0.5
+    high: 1.0
+  colsample_bytree:
+    low: 0.5
+    high: 1.0
+  reg_alpha:
+    low: 1.0e-8
+    high: 10.0
+    log: true
+  reg_lambda:
+    low: 1.0e-8
+    high: 10.0
+    log: true
