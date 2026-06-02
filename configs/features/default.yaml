@@ -1,6 +1,6 @@
 split_ratio: 0.8
 
-lags: [1, 2, 3, 8, 24, 168]
+lags: [1, 2, 3, 8, 24, 48, 72, 168]
 
 rolling_windows: [24, 168]
 
@@ -16,3 +16,4 @@ drop_cols:
   - workingday
   - holiday
   - windspeed
+  - yr
