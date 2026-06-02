@@ -173,9 +173,14 @@ def main(cfg: DictConfig) -> None:
     train = build_calendar_features(train, drop_cols, min_date)
     val   = build_calendar_features(val,   drop_cols, min_date)
 
-    # ── Target ────────────────────────────────────────────────────────────────
-    train = build_target(train, cfg.features.target)
-    val   = build_target(val,   cfg.features.target)
+    # ── Targets ───────────────────────────────────────────────────────────────────
+    train["log_cnt"]        = np.log1p(train["cnt"])
+    train["log_registered"] = np.log1p(train["registered"])
+    train["log_casual"]     = np.log1p(train["casual"])
+
+    val["log_cnt"]        = np.log1p(val["cnt"])
+    val["log_registered"] = np.log1p(val["registered"])
+    val["log_casual"]     = np.log1p(val["casual"])
 
     # ── Drop NaN rows from train only ─────────────────────────────────────────
     before = len(train)
