@@ -47,7 +47,7 @@ def build_lag_features(df: pd.DataFrame, lags: list[int], rolling_windows: list[
     return df
 
 
-def build_calendar_features(df: pd.DataFrame, drop_cols: list[str]) -> pd.DataFrame:
+def build_calendar_features(df: pd.DataFrame, drop_cols: list[str], min_date: pd.Timestamp) -> pd.DataFrame:
     """
     Engineer calendar and interaction features from raw time columns.
 
@@ -57,7 +57,12 @@ def build_calendar_features(df: pd.DataFrame, drop_cols: list[str]) -> pd.DataFr
       recreational demand patterns identified in EDA.
     - Season interaction: hr_x_season captures volume shifts by season at
       each hour of the day.
-    - Drop redundant columns (e.g. atemp, which is r≈0.99 correlated with temp).
+    - is_rush_hour: explicit flag for commuter peak hours on working days
+      (7-9 AM and 17-19 PM). Demand is ~2.7x higher in these windows.
+    - days_since_start: continuous growth trend proxy, replacing the binary
+      yr feature (MI 0.15 vs 0.04). Computed relative to min_date of the
+      full dataset to ensure consistency across train and val.
+    - Drop redundant columns (e.g. atemp, yr, low-MI features).
 
     Parameters
     ----------
@@ -65,6 +70,9 @@ def build_calendar_features(df: pd.DataFrame, drop_cols: list[str]) -> pd.DataFr
         Dataset split (train or val) after lag features have been computed.
     drop_cols : list[str]
         Columns to remove before returning (redundant or low-MI features).
+    min_date : pd.Timestamp
+        Earliest date in the full dataset. Used to compute days_since_start
+        consistently across train and val splits.
 
     Returns
     -------
@@ -85,6 +93,15 @@ def build_calendar_features(df: pd.DataFrame, drop_cols: list[str]) -> pd.DataFr
 
     # Season interaction
     df["hr_x_season"] = df["hr"] * df["season"]
+
+    # Rush hour flag: commuter peaks on working days
+    df["is_rush_hour"] = (
+        (df["hr"].between(7, 9) | df["hr"].between(17, 19)) &
+        (df["workingday"] == 1)
+    ).astype(int)
+
+    # Continuous growth trend — relative to full dataset min_date
+    df["days_since_start"] = (df["dteday"] - min_date).dt.days
 
     # Drop redundant features
     existing = [c for c in drop_cols if c in df.columns]
@@ -149,11 +166,12 @@ def main(cfg: DictConfig) -> None:
     val    = df[df["dteday"] >  cutoff].copy()
     logger.info(f"Train: {len(train):,} rows | Val: {len(val):,} rows")
 
-    # ── Calendar features ─────────────────────────────────────────────────────
+# ── Calendar features ─────────────────────────────────────────────────────────
     logger.info("Building calendar features")
     drop_cols = list(cfg.features.drop_cols)
-    train = build_calendar_features(train, drop_cols)
-    val   = build_calendar_features(val,   drop_cols)
+    min_date  = df["dteday"].min()
+    train = build_calendar_features(train, drop_cols, min_date)
+    val   = build_calendar_features(val,   drop_cols, min_date)
 
     # ── Target ────────────────────────────────────────────────────────────────
     train = build_target(train, cfg.features.target)
