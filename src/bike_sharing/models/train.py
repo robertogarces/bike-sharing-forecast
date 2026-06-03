@@ -15,11 +15,16 @@ from sklearn.metrics import mean_squared_error, mean_squared_log_error, r2_score
 logger = logging.getLogger(__name__)
 
 FEATURES = [
+    # Calendar
     "hr_sin", "hr_cos",
     "hr_workday", "hr_weekend", "hr_x_season",
-    "temp", "hum", "weathersit", "yr",
+    # New
+    "is_rush_hour", "days_since_start",
+    # Context
+    "temp", "hum", "weathersit",
+    # Lags
     "cnt_lag_1", "cnt_lag_2", "cnt_lag_3",
-    "cnt_lag_8", "cnt_lag_24", "cnt_lag_168",
+    "cnt_lag_8", "cnt_lag_24", "cnt_lag_48", "cnt_lag_72", "cnt_lag_168",
     "cnt_rolling_mean_24", "cnt_rolling_mean_168",
 ]
 
@@ -28,8 +33,8 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     """
     Compute RMSE, RMSLE and R² on the original cnt scale.
 
-    If the model was trained on log(cnt+1), y_pred must be
-    back-transformed with expm1 before calling this function.
+    Predictions must be on the original scale (not log) before calling.
+    y_pred is clipped at 0 to avoid negative values breaking RMSLE.
     """
     return {
         "rmse":  np.sqrt(mean_squared_error(y_true, y_pred)),
@@ -66,18 +71,21 @@ def save_best_params(params: dict, fixed_params: dict, path: Path) -> None:
 
 def make_objective(
     X_train: pd.DataFrame,
-    y_train: pd.Series,
+    y_train_registered: pd.Series,
+    y_train_casual: pd.Series,
     X_val: pd.DataFrame,
     y_val_cnt: pd.Series,
     fixed_params: dict,
     search_space: DictConfig,
-    use_log_target: bool,
 ):
     """
     Build an Optuna objective function for LightGBM hyperparameter tuning.
 
-    Each trial is logged as a nested MLflow run under the parent experiment.
-    The objective metric is RMSLE on the validation set (original cnt scale).
+    Tuning is performed on the registered target (dominant population, ~80%
+    of total demand). The same hyperparameters are reused for the casual model.
+
+    Each trial is logged as a nested MLflow run. The objective metric is
+    RMSLE on the validation set (original cnt scale).
     """
 
     def objective(trial: optuna.Trial) -> float:
@@ -94,22 +102,23 @@ def make_objective(
             "reg_lambda":        trial.suggest_float("reg_lambda",       search_space.reg_lambda.low,        search_space.reg_lambda.high,        log=search_space.reg_lambda.log),
         }
 
-        model = lgb.LGBMRegressor(**params)
-        model.fit(X_train, y_train)
+        model_reg = lgb.LGBMRegressor(**params)
+        model_reg.fit(X_train, y_train_registered)
 
-        pred = model.predict(X_val)
-        if use_log_target:
-            pred = np.expm1(pred)
+        model_cas = lgb.LGBMRegressor(**params)
+        model_cas.fit(X_train, y_train_casual)
 
-        metrics = compute_metrics(y_val_cnt.values, pred)
+        pred_combined = np.expm1(model_reg.predict(X_val)) + np.expm1(model_cas.predict(X_val))
+        metrics = compute_metrics(y_val_cnt.values, pred_combined)
 
         with mlflow.start_run(nested=True, run_name=f"trial_{trial.number}"):
             mlflow.log_params(params)
             mlflow.log_metrics(metrics)
 
-        return metrics["rmsle"]
+        return metrics["rmse"]
 
     return objective
+
 
 
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
@@ -124,10 +133,7 @@ def main(cfg: DictConfig) -> None:
     train = pd.read_csv(processed_dir / "train.csv")
     val   = pd.read_csv(processed_dir / "val.csv")
 
-    use_log_target = cfg.features.target == "log_cnt"
-
     X_train   = train[FEATURES]
-    y_train   = train["target"]
     X_val     = val[FEATURES]
     y_val_cnt = val["cnt"]
 
@@ -136,12 +142,13 @@ def main(cfg: DictConfig) -> None:
     # ── MLflow parent run ─────────────────────────────────────────────────────
     mlflow.set_experiment(cfg.project)
 
-    with mlflow.start_run(run_name="lgbm_optuna") as parent_run:
+    with mlflow.start_run(run_name="lgbm_optuna_split") as parent_run:
         mlflow.log_params({
             "tune":        cfg.model.tune,
             "target":      cfg.features.target,
             "split_ratio": cfg.features.split_ratio,
             "n_features":  len(FEATURES),
+            "strategy":    "split_registered_casual",
         })
 
         # ── Tune or load ──────────────────────────────────────────────────────
@@ -155,11 +162,11 @@ def main(cfg: DictConfig) -> None:
             )
             study.optimize(
                 make_objective(
-                    X_train, y_train,
+                    X_train, train["log_registered"],
+                    train["log_casual"],
                     X_val, y_val_cnt,
                     fixed_params,
                     cfg.model.search_space,
-                    use_log_target,
                 ),
                 n_trials=cfg.model.n_trials,
                 show_progress_bar=True,
@@ -173,17 +180,21 @@ def main(cfg: DictConfig) -> None:
             logger.info("Skipping Optuna — loading best params")
             best_params = load_best_params(best_params_path, fixed_params)
 
-        # ── Train final model ─────────────────────────────────────────────────
-        logger.info("Training final model with best hyperparameters")
-        final_model = lgb.LGBMRegressor(**best_params)
-        final_model.fit(X_train, y_train)
+        # ── Train final models ────────────────────────────────────────────────
+        logger.info("Training model — registered users")
+        model_registered = lgb.LGBMRegressor(**best_params)
+        model_registered.fit(X_train, train["log_registered"])
+
+        logger.info("Training model — casual users")
+        model_casual = lgb.LGBMRegressor(**best_params)
+        model_casual.fit(X_train, train["log_casual"])
 
         # ── Evaluate ──────────────────────────────────────────────────────────
-        pred = final_model.predict(X_val)
-        if use_log_target:
-            pred = np.expm1(pred)
+        pred_registered = np.expm1(model_registered.predict(X_val))
+        pred_casual     = np.expm1(model_casual.predict(X_val))
+        pred_combined   = pred_registered + pred_casual
 
-        metrics = compute_metrics(y_val_cnt.values, pred)
+        metrics = compute_metrics(y_val_cnt.values, pred_combined)
         logger.info(
             f"Final model — "
             f"RMSE: {metrics['rmse']:.2f} | "
@@ -191,15 +202,16 @@ def main(cfg: DictConfig) -> None:
             f"R²: {metrics['r2']:.4f}"
         )
 
-        # ── Log final model to MLflow ─────────────────────────────────────────
+        # ── Log to MLflow ─────────────────────────────────────────────────────
         mlflow.log_params(best_params)
         mlflow.log_metrics(metrics)
-        mlflow.lightgbm.log_model(final_model, name="model")
+        mlflow.lightgbm.log_model(model_registered, name="model_registered")
+        mlflow.lightgbm.log_model(model_casual,     name="model_casual")
 
-        # ── Save model locally ────────────────────────────────────────────────
-        model_path = artifacts_dir / "lgbm_model.txt"
-        final_model.booster_.save_model(str(model_path))
-        logger.info(f"Model saved to {model_path}")
+        # ── Save models locally ───────────────────────────────────────────────
+        model_registered.booster_.save_model(str(artifacts_dir / "lgbm_registered.txt"))
+        model_casual.booster_.save_model(str(artifacts_dir / "lgbm_casual.txt"))
+        logger.info(f"Models saved to {artifacts_dir}")
 
 
 if __name__ == "__main__":
