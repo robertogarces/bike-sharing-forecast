@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 
 import hydra
+import json
 import lightgbm as lgb
 import mlflow
 import mlflow.lightgbm
@@ -129,6 +130,12 @@ def main(cfg: DictConfig) -> None:
         f"RMSLE: {metrics['rmsle']:.4f} | "
         f"R²: {metrics['r2']:.4f}"
     )
+
+    # ── Save metrics ──────────────────────────────────────────────────────────────
+    metrics_path = artifacts_dir / "metrics.json"
+    with open(metrics_path, "w") as f:
+        json.dump(metrics, f, indent=2)
+    logger.info(f"Saved metrics to {metrics_path}")
 
     # ── Plots ─────────────────────────────────────────────────────────────────
     logger.info("Generating evaluation plots")

@@ -1,0 +1,136 @@
+schema: '2.0'
+stages:
+  make_dataset:
+    cmd: python src/bike_sharing/data/make_dataset.py
+    deps:
+    - path: configs/config.yaml
+      hash: md5
+      md5: f81e9565a0d7568965322bb0db15fc2f
+      size: 110
+    - path: configs/dataset/kaggle.yaml
+      hash: md5
+      md5: 58fcc7a7ee7b6942fd04fdbc7b5f25b1
+      size: 97
+    - path: src/bike_sharing/data/make_dataset.py
+      hash: md5
+      md5: 401e627542175acc2912c08378f8c0cc
+      size: 858
+    outs:
+    - path: data/raw
+      hash: md5
+      md5: cba804bd0175468f2c0e72eedc864cac.dir
+      size: 1219912
+      nfiles: 3
+  build_features:
+    cmd: python src/bike_sharing/features/build_features.py
+    deps:
+    - path: configs/config.yaml
+      hash: md5
+      md5: f81e9565a0d7568965322bb0db15fc2f
+      size: 110
+    - path: configs/features/default.yaml
+      hash: md5
+      md5: a88da66f9e1bf0c3c3ca5b2617d50f3c
+      size: 234
+    - path: data/raw/hour.csv
+      hash: md5
+      md5: d50bd5a6f55131e72a7bedc334e2fce1
+      size: 1156736
+    - path: src/bike_sharing/features/build_features.py
+      hash: md5
+      md5: 1307b88058171afe603ede47283fabd2
+      size: 7890
+    outs:
+    - path: data/processed/train.csv
+      hash: md5
+      md5: e6257550e1b53da55411227671f6cead
+      size: 3356954
+    - path: data/processed/val.csv
+      hash: md5
+      md5: 4cec73347e4ead4f815a958cccd8df0a
+      size: 855671
+  train:
+    cmd: python src/bike_sharing/models/train.py
+    deps:
+    - path: configs/config.yaml
+      hash: md5
+      md5: f81e9565a0d7568965322bb0db15fc2f
+      size: 110
+    - path: configs/model/lgbm.yaml
+      hash: md5
+      md5: 285671f743f666d3ebb72ecd1d5e865b
+      size: 749
+    - path: data/processed/train.csv
+      hash: md5
+      md5: e6257550e1b53da55411227671f6cead
+      size: 3356954
+    - path: data/processed/val.csv
+      hash: md5
+      md5: 4cec73347e4ead4f815a958cccd8df0a
+      size: 855671
+    - path: src/bike_sharing/models/train.py
+      hash: md5
+      md5: 6a61c9448f96afb626fc6362b5c11294
+      size: 9559
+    params:
+      configs/model/lgbm.yaml:
+        n_trials: 50
+        random_state: 42
+        tune: true
+    outs:
+    - path: artifacts/lgbm_casual.txt
+      hash: md5
+      md5: 22f4691a0502597136fbbc887bfacb7c
+      size: 1444886
+    - path: artifacts/lgbm_registered.txt
+      hash: md5
+      md5: f23a66fb2d69aea4b27382125005555b
+      size: 1518737
+  evaluate:
+    cmd: python src/bike_sharing/models/evaluate.py
+    deps:
+    - path: artifacts/lgbm_casual.txt
+      hash: md5
+      md5: 22f4691a0502597136fbbc887bfacb7c
+      size: 1444886
+    - path: artifacts/lgbm_registered.txt
+      hash: md5
+      md5: f23a66fb2d69aea4b27382125005555b
+      size: 1518737
+    - path: configs/config.yaml
+      hash: md5
+      md5: f81e9565a0d7568965322bb0db15fc2f
+      size: 110
+    - path: data/processed/val.csv
+      hash: md5
+      md5: 4cec73347e4ead4f815a958cccd8df0a
+      size: 855671
+    - path: src/bike_sharing/models/evaluate.py
+      hash: md5
+      md5: b3678aabd50a63deec50fa3b1cf8c2ff
+      size: 7529
+    outs:
+    - path: artifacts/actual_vs_predicted.png
+      hash: md5
+      md5: d1c67d5016d68fd1dbd3147355362f1e
+      size: 145609
+    - path: artifacts/demand_over_time.png
+      hash: md5
+      md5: 69c151d66046b9461a08b1e25f9d2ff7
+      size: 106714
+    - path: artifacts/metrics.json
+      hash: md5
+      md5: 0b168a103908454e18522de134eb87c4
+      size: 91
+    - path: artifacts/residuals.png
+      hash: md5
+      md5: c8856844f1f97f9a92d5a651643829ac
+      size: 154270
+    - path: artifacts/shap_casual.png
+      hash: md5
+      md5: d87b7ac2bec162cdbfdfa3cdd59e5db8
+      size: 175010
+    - path: artifacts/shap_registered.png
+      hash: md5
+      md5: b7ae3aaae1ed41b234dab32df4852b66
+      size: 163646
