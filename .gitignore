@@ -22,6 +22,7 @@ artifacts/
 
 # MLflow
 mlruns/
+mlflow.db
 
 # Hydra
 outputs/
