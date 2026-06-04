@@ -123,6 +123,22 @@ def main(cfg: DictConfig) -> None:
         f"{state['n_future_records']:,} future records"
     )
 
+    # ── Split past / future ───────────────────────────────────────────────────────
+    logger.info("Splitting into past and future datasets")
+
+    now = pd.Timestamp(cfg.simulation.reference_date)
+
+    past   = df_shifted[df_shifted["dteday"] <  now].copy()
+    future = df_shifted[df_shifted["dteday"] >= now].copy()
+
+    past_path   = raw_dir / "hour_past.csv"
+    future_path = raw_dir / "hour_future.csv"
+
+    past.to_csv(past_path,     index=False)
+    future.to_csv(future_path, index=False)
+
+    logger.info(f"Saved past dataset to {past_path} ({len(past):,} records)")
+    logger.info(f"Saved future dataset to {future_path} ({len(future):,} records)")
 
 if __name__ == "__main__":
     main()
