@@ -1,3 +1,13 @@
+"""
+Initialization script — run ONCE before starting the simulation.
+
+    python src/bike_sharing/data/shift_dates.py
+
+This script is NOT part of the DVC pipeline. It generates the initial
+hour_past.csv and hour_future.csv files that the pipeline depends on.
+To reset the simulation, delete data/simulation_state.json and re-run.
+"""
+
 import json
 import logging
 from pathlib import Path
@@ -28,7 +38,6 @@ def check_existing_state() -> None:
             f"future: {state['future_start_date']} → {state['future_end_date']}).\n"
             f"To reset, delete {STATE_PATH} explicitly."
         )
-
 
 def shift_dates(df: pd.DataFrame, reference_date: pd.Timestamp, future_pct: float) -> tuple[pd.DataFrame, dict]:
     """
@@ -67,9 +76,9 @@ def shift_dates(df: pd.DataFrame, reference_date: pd.Timestamp, future_pct: floa
     future_end   = df.iloc[-1]["dteday"]
 
     state = {
-        "reference_date":   reference_date.strftime("%Y-%m-%d"),
-        "future_pct":       future_pct,
-        "shift_applied_at": datetime.now().isoformat(),
+        "reference_date":    reference_date.strftime("%Y-%m-%d"),
+        "future_pct":        future_pct,
+        "shift_applied_at":  datetime.now().isoformat(),
         "future_start_date": future_start.strftime("%Y-%m-%d"),
         "future_end_date":   future_end.strftime("%Y-%m-%d"),
         "n_future_records":  n_future,
@@ -117,28 +126,22 @@ def main(cfg: DictConfig) -> None:
         json.dump(state, f, indent=2)
     logger.info(f"Saved simulation state to {STATE_PATH}")
 
-    # ── Summary ───────────────────────────────────────────────────────────────
+    # ── Split past / future ───────────────────────────────────────────────────
+    logger.info("Splitting into past and future datasets")
+    now    = pd.Timestamp(cfg.simulation.reference_date)
+    past   = df_shifted[df_shifted["dteday"] <  now].copy()
+    future = df_shifted[df_shifted["dteday"] >= now].copy()
+
+    past.to_csv(raw_dir / "hour_past.csv",   index=False)
+    future.to_csv(raw_dir / "hour_future.csv", index=False)
+
+    logger.info(f"Saved past dataset ({len(past):,} records)")
+    logger.info(f"Saved future dataset ({len(future):,} records)")
     logger.info(
         f"Done — {state['n_past_records']:,} past records | "
         f"{state['n_future_records']:,} future records"
     )
 
-    # ── Split past / future ───────────────────────────────────────────────────────
-    logger.info("Splitting into past and future datasets")
-
-    now = pd.Timestamp(cfg.simulation.reference_date)
-
-    past   = df_shifted[df_shifted["dteday"] <  now].copy()
-    future = df_shifted[df_shifted["dteday"] >= now].copy()
-
-    past_path   = raw_dir / "hour_past.csv"
-    future_path = raw_dir / "hour_future.csv"
-
-    past.to_csv(past_path,     index=False)
-    future.to_csv(future_path, index=False)
-
-    logger.info(f"Saved past dataset to {past_path} ({len(past):,} records)")
-    logger.info(f"Saved future dataset to {future_path} ({len(future):,} records)")
 
 if __name__ == "__main__":
     main()

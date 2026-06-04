@@ -6,7 +6,8 @@ stages:
       - configs/config.yaml
       - configs/dataset/kaggle.yaml
     outs:
-      - data/raw
+      - data/raw/hour.csv
+      - data/raw/day.csv
 
   build_features:
     cmd: python src/bike_sharing/features/build_features.py
