@@ -1,3 +1,4 @@
 kaggle_slug: lakshmi25npathi/bike-sharing-dataset
 raw_dir: data/raw
 processed_dir: data/processed
+input_file: hour_past.csv

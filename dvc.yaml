@@ -14,7 +14,7 @@ stages:
       - src/bike_sharing/features/build_features.py
       - configs/config.yaml
       - configs/features/default.yaml
-      - data/raw/hour.csv
+      - data/raw/hour_past.csv
     outs:
       - data/processed/train.csv
       - data/processed/val.csv

@@ -148,7 +148,7 @@ def main(cfg: DictConfig) -> None:
 
     # ── Load ──────────────────────────────────────────────────────────────────
     logger.info("Loading raw data")
-    df = pd.read_csv(raw_dir / "hour.csv")
+    df = pd.read_csv(raw_dir / cfg.dataset.input_file)
     df["dteday"]   = pd.to_datetime(df["dteday"])
     df["datetime"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
 
