@@ -173,7 +173,7 @@ def main(cfg: DictConfig) -> None:
             )
 
             best_params = {**fixed_params, **study.best_params}
-            logger.info(f"Best RMSLE: {study.best_value:.4f}")
+            logger.info(f"Best RMSE: {study.best_value:.4f}")
             save_best_params(best_params, fixed_params, best_params_path)
 
         else:
