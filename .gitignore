@@ -34,4 +34,5 @@ Thumbs.db
 
 # IDE
 .vscode/
-.idea/
+.idea/configs/model/best_params.yaml
+data/simulation_state.json
