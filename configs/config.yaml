@@ -2,6 +2,7 @@ defaults:
   - dataset: kaggle
   - features: default
   - model: lgbm
+  - simulation: default
   - _self_
 
 project: bike-sharing-forecast
