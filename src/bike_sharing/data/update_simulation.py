@@ -1,0 +1,115 @@
+import json
+import logging
+from pathlib import Path
+from datetime import datetime
+
+import hydra
+import pandas as pd
+from omegaconf import DictConfig
+
+logger = logging.getLogger(__name__)
+
+STATE_PATH = Path("data/simulation_state.json")
+
+
+def load_simulation_state() -> dict:
+    """
+    Load the simulation state from disk.
+    Raises if the simulation has not been initialized.
+    """
+    if not STATE_PATH.exists():
+        raise RuntimeError(
+            "No simulation state found. "
+            "Run shift_dates.py first to initialize the simulation."
+        )
+    with open(STATE_PATH) as f:
+        return json.load(f)
+
+
+def move_revealed_records(
+    past_path: Path,
+    future_path: Path,
+    now: datetime,
+) -> tuple[pd.DataFrame, int]:
+    """
+    Move records from hour_future.csv to hour_past.csv whose datetime
+    has already passed relative to `now`.
+
+    Parameters
+    ----------
+    past_path : Path
+        Path to hour_past.csv.
+    future_path : Path
+        Path to hour_future.csv.
+    now : datetime
+        Current simulation time.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, int]
+        Updated past DataFrame and number of records moved.
+    """
+    past   = pd.read_csv(past_path)
+    future = pd.read_csv(future_path)
+
+    past["dteday"]   = pd.to_datetime(past["dteday"])
+    future["dteday"] = pd.to_datetime(future["dteday"])
+
+    now_ts = pd.Timestamp(now)
+
+    revealed = future[future["dteday"] <= now_ts]
+    remaining = future[future["dteday"] > now_ts]
+
+    if len(revealed) == 0:
+        logger.info("No new records to reveal")
+        return past, 0
+
+    updated_past = pd.concat([past, revealed], ignore_index=True)
+    updated_past = updated_past.sort_values("datetime" if "datetime" in updated_past.columns else "dteday")
+
+    updated_past.to_csv(past_path,   index=False)
+    remaining.to_csv(future_path,    index=False)
+
+    return updated_past, len(revealed)
+
+
+@hydra.main(config_path="../../../configs", config_name="config", version_base=None)
+def main(cfg: DictConfig) -> None:
+    raw_dir = Path(cfg.dataset.raw_dir)
+
+    # ── Load state ────────────────────────────────────────────────────────────
+    state = load_simulation_state()
+    logger.info(
+        f"Simulation state — started: {state['shift_applied_at'][:10]} | "
+        f"future: {state['future_start_date']} → {state['future_end_date']}"
+    )
+
+    # ── Check if simulation is exhausted ──────────────────────────────────────
+    future_path = raw_dir / "hour_future.csv"
+    future      = pd.read_csv(future_path)
+
+    if len(future) == 0:
+        logger.warning("Simulation exhausted — no future records remaining.")
+        return
+
+    # ── Move revealed records ─────────────────────────────────────────────────
+    now = datetime.now()
+    logger.info(f"Current time: {now.strftime('%Y-%m-%d %H:%M')}")
+
+    past, n_moved = move_revealed_records(
+        past_path=raw_dir / "hour_past.csv",
+        future_path=future_path,
+        now=now,
+    )
+
+    if n_moved > 0:
+        logger.info(f"Moved {n_moved} revealed records from future to past")
+        logger.info(f"Past: {len(past):,} records | Future: {len(future) - n_moved:,} records remaining")
+    
+    # ── Summary ───────────────────────────────────────────────────────────────
+    pct_remaining = (len(future) - n_moved) / (len(future) + len(past)) * 100
+    logger.info(f"Simulation progress: {100 - pct_remaining:.1f}% complete")
+
+
+if __name__ == "__main__":
+    main()
