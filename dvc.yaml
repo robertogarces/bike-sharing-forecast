@@ -1,61 +1,53 @@
 stages:
-  make_dataset:
-    cmd: python src/bike_sharing/data/make_dataset.py
-    deps:
-      - src/bike_sharing/data/make_dataset.py
-      - configs/config.yaml
-      - configs/dataset/kaggle.yaml
-    outs:
-      - data/raw/hour.csv
-      - data/raw/day.csv
 
   build_features:
     cmd: python src/bike_sharing/features/build_features.py
     deps:
-      - src/bike_sharing/features/build_features.py
-      - configs/config.yaml
-      - configs/features/default.yaml
-      - data/raw/hour_past.csv
+    - configs/config.yaml
+    - configs/features/default.yaml
+    - data/raw/hour_past.csv
+    - src/bike_sharing/features/build_features.py
     outs:
-      - data/processed/train.csv
-      - data/processed/val.csv
+    - data/processed/train.csv
+    - data/processed/val.csv
 
+    frozen: true
   train:
     cmd: python src/bike_sharing/models/train.py
     deps:
-      - src/bike_sharing/models/train.py
-      - configs/config.yaml
-      - configs/model/lgbm.yaml
-      - data/processed/train.csv
-      - data/processed/val.csv
+    - src/bike_sharing/models/train.py
+    - configs/config.yaml
+    - configs/model/lgbm.yaml
+    - data/processed/train.csv
+    - data/processed/val.csv
     params:
-      - configs/model/lgbm.yaml:
-          - n_trials
-          - random_state
-          - tune
+    - configs/model/lgbm.yaml:
+      - n_trials
+      - random_state
+      - tune
     outs:
-      - artifacts/lgbm_registered.txt
-      - artifacts/lgbm_casual.txt
+    - artifacts/lgbm_registered.txt
+    - artifacts/lgbm_casual.txt
 
   evaluate:
     cmd: python src/bike_sharing/models/evaluate.py
     deps:
-      - src/bike_sharing/models/evaluate.py
-      - configs/config.yaml
-      - data/processed/val.csv
-      - artifacts/lgbm_registered.txt
-      - artifacts/lgbm_casual.txt
+    - src/bike_sharing/models/evaluate.py
+    - configs/config.yaml
+    - data/processed/val.csv
+    - artifacts/lgbm_registered.txt
+    - artifacts/lgbm_casual.txt
     outs:
-      - artifacts/residuals.png:
-          cache: false
-      - artifacts/actual_vs_predicted.png:
-          cache: false
-      - artifacts/demand_over_time.png:
-          cache: false
-      - artifacts/shap_registered.png:
-          cache: false
-      - artifacts/shap_casual.png:
-          cache: false
+    - artifacts/residuals.png:
+        cache: false
+    - artifacts/actual_vs_predicted.png:
+        cache: false
+    - artifacts/demand_over_time.png:
+        cache: false
+    - artifacts/shap_registered.png:
+        cache: false
+    - artifacts/shap_casual.png:
+        cache: false
     metrics:
-      - artifacts/metrics.json:
-          cache: false
+    - artifacts/metrics.json:
+        cache: false
