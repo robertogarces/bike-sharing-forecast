@@ -5,7 +5,7 @@ Initialization script — run ONCE before starting the simulation.
 
 This script is NOT part of the DVC pipeline. It generates the initial
 hour_past.csv and hour_future.csv files that the pipeline depends on.
-To reset the simulation, delete data/simulation_state.json and re-run.
+To reset the simulation, delete the simulation_state file and re-run.
 """
 
 import json
@@ -19,25 +19,24 @@ from omegaconf import DictConfig
 
 logger = logging.getLogger(__name__)
 
-STATE_PATH = Path("data/simulation_state.json")
 
-
-def check_existing_state() -> None:
+def check_existing_state(state_path: Path) -> None:
     """
     Abort if a simulation state already exists.
 
     Prevents accidental overwrite of an ongoing simulation.
-    To reset, delete data/simulation_state.json explicitly.
+    To reset, delete the simulation state file explicitly.
     """
-    if STATE_PATH.exists():
-        with open(STATE_PATH) as f:
+    if state_path.exists():
+        with open(state_path) as f:
             state = json.load(f)
         raise RuntimeError(
             f"A simulation is already running (started {state['shift_applied_at']}, "
             f"reference date: {state['reference_date']}, "
             f"future: {state['future_start_date']} → {state['future_end_date']}).\n"
-            f"To reset, delete {STATE_PATH} explicitly."
+            f"To reset, delete {state_path} explicitly."
         )
+
 
 def shift_dates(df: pd.DataFrame, reference_date: pd.Timestamp, future_pct: float) -> tuple[pd.DataFrame, dict]:
     """
@@ -90,10 +89,11 @@ def shift_dates(df: pd.DataFrame, reference_date: pd.Timestamp, future_pct: floa
 
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
-    raw_dir = Path(cfg.dataset.raw_dir)
+    raw_dir    = Path(cfg.paths.raw_dir)
+    state_path = Path(cfg.paths.simulation_state)
 
     # ── Safety check ──────────────────────────────────────────────────────────
-    check_existing_state()
+    check_existing_state(state_path)
 
     # ── Load ──────────────────────────────────────────────────────────────────
     logger.info("Loading raw dataset")
@@ -121,10 +121,10 @@ def main(cfg: DictConfig) -> None:
     logger.info(f"Saved shifted dataset to {output_path}")
 
     # ── Save simulation state ─────────────────────────────────────────────────
-    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(STATE_PATH, "w") as f:
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(state_path, "w") as f:
         json.dump(state, f, indent=2)
-    logger.info(f"Saved simulation state to {STATE_PATH}")
+    logger.info(f"Saved simulation state to {state_path}")
 
     # ── Split past / future ───────────────────────────────────────────────────
     logger.info("Splitting into past and future datasets")
@@ -132,8 +132,11 @@ def main(cfg: DictConfig) -> None:
     past   = df_shifted[df_shifted["dteday"] <  now].copy()
     future = df_shifted[df_shifted["dteday"] >= now].copy()
 
-    past.to_csv(raw_dir / "hour_past.csv",   index=False)
-    future.to_csv(raw_dir / "hour_future.csv", index=False)
+    past_path   = raw_dir / cfg.paths.input_file
+    future_path = raw_dir / "hour_future.csv"
+
+    past.to_csv(past_path,   index=False)
+    future.to_csv(future_path, index=False)
 
     logger.info(f"Saved past dataset ({len(past):,} records)")
     logger.info(f"Saved future dataset ({len(future):,} records)")

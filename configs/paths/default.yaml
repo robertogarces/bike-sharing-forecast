@@ -1,0 +1,8 @@
+# configs/paths/default.yaml
+raw_dir: data/raw
+processed_dir: data/processed
+artifacts_dir: artifacts
+predictions_dir: data/predictions
+predictions_path: data/predictions/predictions.csv
+simulation_state: data/simulation_state.json
+input_file: hour_past.csv

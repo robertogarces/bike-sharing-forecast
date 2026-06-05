@@ -14,21 +14,18 @@ from bike_sharing.models.train import FEATURES
 
 logger = logging.getLogger(__name__)
 
-STATE_PATH   = Path("data/simulation_state.json")
-PRED_PATH    = Path("data/predictions.csv")
 
-
-def load_simulation_state() -> dict:
+def load_simulation_state(state_path: Path) -> dict:
     """
     Load the simulation state from disk.
     Raises if the simulation has not been initialized.
     """
-    if not STATE_PATH.exists():
+    if not state_path.exists():
         raise RuntimeError(
             "No simulation state found. "
             "Run shift_dates.py first to initialize the simulation."
         )
-    with open(STATE_PATH) as f:
+    with open(state_path) as f:
         return json.load(f)
 
 
@@ -84,25 +81,25 @@ def build_next_hour_features(
     next_row["hr"]       = next_hr
 
     # Shift lags — lag_1 of next hour = cnt of current hour, etc.
-    next_row["cnt_lag_1"]  = current["cnt"]
-    next_row["cnt_lag_2"]  = current["cnt_lag_1"]
-    next_row["cnt_lag_3"]  = current["cnt_lag_2"]
-    next_row["cnt_lag_8"]  = past.iloc[-8]["cnt"]  if len(past) >= 8  else np.nan
-    next_row["cnt_lag_24"] = past.iloc[-24]["cnt"] if len(past) >= 24 else np.nan
-    next_row["cnt_lag_48"] = past.iloc[-48]["cnt"] if len(past) >= 48 else np.nan
-    next_row["cnt_lag_72"] = past.iloc[-72]["cnt"] if len(past) >= 72 else np.nan
-    next_row["cnt_lag_168"]= past.iloc[-168]["cnt"] if len(past) >= 168 else np.nan
+    next_row["cnt_lag_1"]   = current["cnt"]
+    next_row["cnt_lag_2"]   = current["cnt_lag_1"]
+    next_row["cnt_lag_3"]   = current["cnt_lag_2"]
+    next_row["cnt_lag_8"]   = past.iloc[-8]["cnt"]   if len(past) >= 8   else np.nan
+    next_row["cnt_lag_24"]  = past.iloc[-24]["cnt"]  if len(past) >= 24  else np.nan
+    next_row["cnt_lag_48"]  = past.iloc[-48]["cnt"]  if len(past) >= 48  else np.nan
+    next_row["cnt_lag_72"]  = past.iloc[-72]["cnt"]  if len(past) >= 72  else np.nan
+    next_row["cnt_lag_168"] = past.iloc[-168]["cnt"] if len(past) >= 168 else np.nan
 
     next_row["cnt_rolling_mean_24"]  = past["cnt"].iloc[-24:].mean()
     next_row["cnt_rolling_mean_168"] = past["cnt"].iloc[-168:].mean()
 
     # Update cyclic and calendar features for next hour
-    next_row["hr_sin"]          = np.sin(2 * np.pi * next_hr / 24)
-    next_row["hr_cos"]          = np.cos(2 * np.pi * next_hr / 24)
-    next_row["hr_workday"]      = next_hr * current["workingday"]
-    next_row["hr_weekend"]      = next_hr * (1 - current["workingday"])
-    next_row["hr_x_season"]     = next_hr * current["season"]
-    next_row["is_rush_hour"]    = int(
+    next_row["hr_sin"]           = np.sin(2 * np.pi * next_hr / 24)
+    next_row["hr_cos"]           = np.cos(2 * np.pi * next_hr / 24)
+    next_row["hr_workday"]       = next_hr * current["workingday"]
+    next_row["hr_weekend"]       = next_hr * (1 - current["workingday"])
+    next_row["hr_x_season"]      = next_hr * current["season"]
+    next_row["is_rush_hour"]     = int(
         (7 <= next_hr <= 9 or 17 <= next_hr <= 19) and current["workingday"] == 1
     )
     next_row["days_since_start"] = (next_day - min_date).days
@@ -110,37 +107,59 @@ def build_next_hour_features(
     return pd.DataFrame([next_row])
 
 
-def append_prediction(pred_row: dict) -> None:
+def append_prediction(pred_row: dict, pred_path: Path) -> None:
     """
-    Append a prediction record to data/predictions.csv.
+    Append a prediction record to predictions.csv.
+    Skips if a prediction for that hour already exists.
     Creates the file with headers if it doesn't exist.
     """
     df_new = pd.DataFrame([pred_row])
-    if PRED_PATH.exists():
-        df_new.to_csv(PRED_PATH, mode="a", header=False, index=False)
+
+    if pred_path.exists():
+        existing = pd.read_csv(pred_path)
+        if pred_row["timestamp_predicted"] in existing["timestamp_predicted"].values:
+            logger.warning(
+                f"Prediction for {pred_row['timestamp_predicted']} already exists — skipping."
+            )
+            return
+        df_new.to_csv(pred_path, mode="a", header=False, index=False)
     else:
-        df_new.to_csv(PRED_PATH, index=False)
+        pred_path.parent.mkdir(parents=True, exist_ok=True)
+        df_new.to_csv(pred_path, index=False)
 
 
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
-    raw_dir       = Path(cfg.dataset.raw_dir)
-    artifacts_dir = Path("artifacts")
+    raw_dir       = Path(cfg.paths.raw_dir)
+    artifacts_dir = Path(cfg.paths.artifacts_dir)
+    state_path    = Path(cfg.paths.simulation_state)
+    pred_path     = Path(cfg.paths.predictions_path)
 
     # ── Load simulation state ─────────────────────────────────────────────────
-    state    = load_simulation_state()
-    min_date = pd.Timestamp(state["future_start_date"]) - pd.DateOffset(years=2)
+    load_simulation_state(state_path)
 
     # ── Load past data ────────────────────────────────────────────────────────
     logger.info("Loading past data")
-    past = pd.read_csv(raw_dir / "hour_past.csv")
+    past = pd.read_csv(raw_dir / cfg.paths.input_file)
     past["dteday"] = pd.to_datetime(past["dteday"])
 
-    last_record = past.sort_values("dteday").iloc[-1]
+    last_record = past.sort_values(["dteday", "hr"]).iloc[-1]
     current_dt  = pd.to_datetime(last_record["dteday"]) + pd.Timedelta(hours=int(last_record["hr"]))
     next_dt     = current_dt + pd.Timedelta(hours=1)
 
     logger.info(f"Current hour: {current_dt} | Predicting: {next_dt}")
+
+    # ── Validate data freshness ───────────────────────────────────────────────
+    now      = datetime.now()
+    data_lag = now - current_dt.to_pydatetime()
+
+    if data_lag > pd.Timedelta(hours=2):
+        logger.warning(
+            f"Data lag detected: last record is {data_lag} behind current time. "
+            f"Run update_simulation.py first."
+        )
+    else:
+        logger.info(f"Data freshness OK — lag: {data_lag}")
 
     # ── Load models ───────────────────────────────────────────────────────────
     model_registered = lgb.Booster(model_file=str(artifacts_dir / "lgbm_registered.txt"))
@@ -148,9 +167,9 @@ def main(cfg: DictConfig) -> None:
 
     # ── Build features ────────────────────────────────────────────────────────
     logger.info("Building features for next hour")
-    min_date  = past["dteday"].min()
-    next_row  = build_next_hour_features(past, min_date)
-    X         = next_row[FEATURES]
+    min_date = past["dteday"].min()
+    next_row = build_next_hour_features(past, min_date)
+    X        = next_row[FEATURES]
 
     # ── Predict ───────────────────────────────────────────────────────────────
     pred_registered = float(np.expm1(model_registered.predict(X))[0])
@@ -166,20 +185,20 @@ def main(cfg: DictConfig) -> None:
 
     # ── Save prediction ───────────────────────────────────────────────────────
     pred_record = {
-        "predicted_at":       datetime.now().isoformat(),
+        "predicted_at":        datetime.now().isoformat(),
         "timestamp_predicted": next_dt.isoformat(),
-        "hr":                 int(next_row["hr"].values[0]),
-        "temp":               float(next_row["temp"].values[0]),
-        "hum":                float(next_row["hum"].values[0]),
-        "weathersit":         int(next_row["weathersit"].values[0]),
-        "workingday":         int(last_record["workingday"]),
-        "pred_registered":    round(pred_registered, 2),
-        "pred_casual":        round(pred_casual, 2),
-        "pred_total":         round(pred_total, 2),
+        "hr":                  int(next_row["hr"].values[0]),
+        "temp":                float(next_row["temp"].values[0]),
+        "hum":                 float(next_row["hum"].values[0]),
+        "weathersit":          int(next_row["weathersit"].values[0]),
+        "workingday":          int(last_record["workingday"]),
+        "pred_registered":     round(pred_registered, 2),
+        "pred_casual":         round(pred_casual, 2),
+        "pred_total":          round(pred_total, 2),
     }
 
-    append_prediction(pred_record)
-    logger.info(f"Prediction saved to {PRED_PATH}")
+    append_prediction(pred_record, pred_path)
+    logger.info(f"Prediction saved to {pred_path}")
 
 
 if __name__ == "__main__":

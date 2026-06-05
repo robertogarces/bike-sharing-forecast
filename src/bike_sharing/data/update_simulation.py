@@ -9,20 +9,18 @@ from omegaconf import DictConfig
 
 logger = logging.getLogger(__name__)
 
-STATE_PATH = Path("data/simulation_state.json")
 
-
-def load_simulation_state() -> dict:
+def load_simulation_state(state_path: Path) -> dict:
     """
     Load the simulation state from disk.
     Raises if the simulation has not been initialized.
     """
-    if not STATE_PATH.exists():
+    if not state_path.exists():
         raise RuntimeError(
             "No simulation state found. "
             "Run shift_dates.py first to initialize the simulation."
         )
-    with open(STATE_PATH) as f:
+    with open(state_path) as f:
         return json.load(f)
 
 
@@ -87,10 +85,11 @@ def move_revealed_records(
 
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
-    raw_dir = Path(cfg.dataset.raw_dir)
+    raw_dir    = Path(cfg.paths.raw_dir)
+    state_path = Path(cfg.paths.simulation_state)
 
     # ── Load state ────────────────────────────────────────────────────────────
-    state = load_simulation_state()
+    state = load_simulation_state(state_path)
     logger.info(
         f"Simulation state — started: {state['shift_applied_at'][:10]} | "
         f"future: {state['future_start_date']} → {state['future_end_date']}"
@@ -109,7 +108,7 @@ def main(cfg: DictConfig) -> None:
     logger.info(f"Current time: {now.strftime('%Y-%m-%d %H:%M')}")
 
     past, n_moved = move_revealed_records(
-        past_path=raw_dir / "hour_past.csv",
+        past_path=raw_dir / cfg.paths.input_file,
         future_path=future_path,
         now=now,
     )
