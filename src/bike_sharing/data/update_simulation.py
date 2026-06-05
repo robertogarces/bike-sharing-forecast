@@ -52,20 +52,32 @@ def move_revealed_records(
     past   = pd.read_csv(past_path)
     future = pd.read_csv(future_path)
 
-    past["dteday"]   = pd.to_datetime(past["dteday"])
-    future["dteday"] = pd.to_datetime(future["dteday"])
+    # Parse dteday consistently in both dataframes
+    past["dteday"]   = pd.to_datetime(past["dteday"]).dt.normalize()
+    future["dteday"] = pd.to_datetime(future["dteday"]).dt.normalize()
 
+    # Build datetime for comparison
+    future["datetime"] = future["dteday"] + pd.to_timedelta(future["hr"], unit="h")
     now_ts = pd.Timestamp(now)
 
-    revealed = future[future["dteday"] <= now_ts]
-    remaining = future[future["dteday"] > now_ts]
+    revealed  = future[future["datetime"] <= now_ts].copy()
+    remaining = future[future["datetime"] >  now_ts].copy()
 
     if len(revealed) == 0:
         logger.info("No new records to reveal")
         return past, 0
 
+    # Drop the temporary datetime column before saving
+    revealed  = revealed.drop(columns=["datetime"])
+    remaining = remaining.drop(columns=["datetime"])
+
+    # Concat and sort
     updated_past = pd.concat([past, revealed], ignore_index=True)
-    updated_past = updated_past.sort_values("datetime" if "datetime" in updated_past.columns else "dteday")
+    updated_past = updated_past.sort_values(["dteday", "hr"]).reset_index(drop=True)
+
+    # Save dteday as date string only
+    updated_past["dteday"] = updated_past["dteday"].dt.strftime("%Y-%m-%d")
+    remaining["dteday"]    = remaining["dteday"].dt.strftime("%Y-%m-%d")
 
     updated_past.to_csv(past_path,   index=False)
     remaining.to_csv(future_path,    index=False)
@@ -105,7 +117,7 @@ def main(cfg: DictConfig) -> None:
     if n_moved > 0:
         logger.info(f"Moved {n_moved} revealed records from future to past")
         logger.info(f"Past: {len(past):,} records | Future: {len(future) - n_moved:,} records remaining")
-    
+
     # ── Summary ───────────────────────────────────────────────────────────────
     pct_remaining = (len(future) - n_moved) / (len(future) + len(past)) * 100
     logger.info(f"Simulation progress: {100 - pct_remaining:.1f}% complete")
