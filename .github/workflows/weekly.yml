@@ -1,0 +1,50 @@
+name: Weekly — Drift Detection & Retrain
+
+on:
+  schedule:
+    - cron: "0 0 * * 1"  # runs every Monday at midnight
+  workflow_dispatch:       # allows manual trigger from GitHub UI
+
+jobs:
+  drift_and_retrain:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install -r requirements.txt
+
+      - name: Configure DVC remote
+        run: |
+          dvc remote modify origin --local auth basic
+          dvc remote modify origin --local user ${{ secrets.DAGSHUB_USERNAME }}
+          dvc remote modify origin --local password ${{ secrets.DAGSHUB_TOKEN }}
+
+      - name: Pull data and models from DagsHub
+        run: dvc pull
+
+      - name: Run drift detection
+        run: python src/bike_sharing/monitoring/drift_detection.py
+
+      - name: Retrain if drift detected
+        run: python src/bike_sharing/models/retrain.py
+
+      - name: Push updated models to DagsHub
+        run: dvc push
+
+      - name: Commit updated artifacts
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dvc.lock
+          git diff --staged --quiet || git commit -m "chore: weekly drift detection and retrain [skip ci]"
+          git push

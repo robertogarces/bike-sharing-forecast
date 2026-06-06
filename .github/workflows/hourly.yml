@@ -1,0 +1,50 @@
+name: Hourly — Update & Predict
+
+on:
+  schedule:
+    - cron: "0 * * * *"  # runs every hour at minute 0
+  workflow_dispatch:       # allows manual trigger from GitHub UI
+
+jobs:
+  predict:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install -r requirements.txt
+
+      - name: Configure DVC remote
+        run: |
+          dvc remote modify origin --local auth basic
+          dvc remote modify origin --local user ${{ secrets.DAGSHUB_USERNAME }}
+          dvc remote modify origin --local password ${{ secrets.DAGSHUB_TOKEN }}
+
+      - name: Pull data and models from DagsHub
+        run: dvc pull
+
+      - name: Update simulation
+        run: python src/bike_sharing/data/update_simulation.py
+
+      - name: Predict next hour
+        run: python src/bike_sharing/models/predict.py
+
+      - name: Push updated data to DagsHub
+        run: dvc push
+
+      - name: Commit updated simulation files
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/simulation_state.json dvc.lock
+          git diff --staged --quiet || git commit -m "chore: hourly simulation update [skip ci]"
+          git push
