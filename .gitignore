@@ -11,7 +11,9 @@ build/
 venv/
 
 # Data contents (tracked by DVC, not Git)
-data/raw/
+data/raw/hour.csv
+data/raw/day.csv
+data/raw/hour_shifted.csv
 data/processed/
 
 # Artifacts (tracked by DVC, not Git)
@@ -35,7 +37,5 @@ Thumbs.db
 # IDE
 .vscode/
 configs/model/best_params.yaml
-data/simulation_state.json
-data/predictions/
 data/predictions/
 .env
