@@ -29,16 +29,16 @@ stages:
     deps:
     - path: configs/config.yaml
       hash: md5
-      md5: d12e1e0773c53497fb3aa2820c4f6ba2
-      size: 134
+      md5: 45334c9cca3fb84a5fb1d96d3c00cba2
+      size: 199
     - path: configs/features/default.yaml
       hash: md5
       md5: a88da66f9e1bf0c3c3ca5b2617d50f3c
       size: 234
     - path: data/raw/hour_past.csv
       hash: md5
-      md5: cbdd41a004ea3a42d021979af08dd1c5
-      size: 1025982
+      md5: 1f72b4cbba0645c7b2f5b8fbc7794439
+      size: 1029023
     - path: src/bike_sharing/features/build_features.py
       hash: md5
       md5: 7de8664504032eaf8797b3c86345bc4b
@@ -46,68 +46,68 @@ stages:
     outs:
     - path: data/processed/train.csv
       hash: md5
-      md5: 97f3ea8f5792bf6e33ec1564487cb7f4
-      size: 3006048
+      md5: a073a7b92ff389a98d0737777b38ddb2
+      size: 3017985
     - path: data/processed/val.csv
       hash: md5
-      md5: 9c20bb481e813a65b52014856e067cbb
-      size: 773252
+      md5: 754a00db3405215512a84bd65a51e95d
+      size: 772420
   train:
     cmd: python src/bike_sharing/models/train.py
     deps:
     - path: configs/config.yaml
       hash: md5
-      md5: d12e1e0773c53497fb3aa2820c4f6ba2
-      size: 134
+      md5: 45334c9cca3fb84a5fb1d96d3c00cba2
+      size: 199
     - path: configs/model/lgbm.yaml
       hash: md5
-      md5: 285671f743f666d3ebb72ecd1d5e865b
-      size: 749
+      md5: 4a696cc23fff5d869ac8efb5578feb3c
+      size: 750
     - path: data/processed/train.csv
       hash: md5
-      md5: 97f3ea8f5792bf6e33ec1564487cb7f4
-      size: 3006048
+      md5: a073a7b92ff389a98d0737777b38ddb2
+      size: 3017985
     - path: data/processed/val.csv
       hash: md5
-      md5: 9c20bb481e813a65b52014856e067cbb
-      size: 773252
+      md5: 754a00db3405215512a84bd65a51e95d
+      size: 772420
     - path: src/bike_sharing/models/train.py
       hash: md5
-      md5: 6a61c9448f96afb626fc6362b5c11294
-      size: 9559
+      md5: a5cda2f22012117eac8630171102f3e7
+      size: 9558
     params:
       configs/model/lgbm.yaml:
         n_trials: 50
         random_state: 42
-        tune: true
+        tune: false
     outs:
     - path: artifacts/lgbm_casual.txt
       hash: md5
-      md5: 52f771680126c67eaccd16269329abcb
-      size: 5742236
+      md5: 9d4e42e2e68b3cb6279c83e0607b8117
+      size: 5778257
     - path: artifacts/lgbm_registered.txt
       hash: md5
-      md5: 911926469d8eb60302e42e8cc2c46f10
-      size: 6040926
+      md5: fe6e7ea70e8177baf4075a32560b7ee7
+      size: 6071288
   evaluate:
     cmd: python src/bike_sharing/models/evaluate.py
     deps:
     - path: artifacts/lgbm_casual.txt
       hash: md5
-      md5: 52f771680126c67eaccd16269329abcb
-      size: 5742236
+      md5: 9d4e42e2e68b3cb6279c83e0607b8117
+      size: 5778257
     - path: artifacts/lgbm_registered.txt
       hash: md5
-      md5: 911926469d8eb60302e42e8cc2c46f10
-      size: 6040926
+      md5: fe6e7ea70e8177baf4075a32560b7ee7
+      size: 6071288
     - path: configs/config.yaml
       hash: md5
-      md5: d12e1e0773c53497fb3aa2820c4f6ba2
-      size: 134
+      md5: 45334c9cca3fb84a5fb1d96d3c00cba2
+      size: 199
     - path: data/processed/val.csv
       hash: md5
-      md5: 9c20bb481e813a65b52014856e067cbb
-      size: 773252
+      md5: 754a00db3405215512a84bd65a51e95d
+      size: 772420
     - path: src/bike_sharing/models/evaluate.py
       hash: md5
       md5: b3678aabd50a63deec50fa3b1cf8c2ff
@@ -115,28 +115,28 @@ stages:
     outs:
     - path: artifacts/actual_vs_predicted.png
       hash: md5
-      md5: 5a7e7a5841e43eb3b6251548dc3bce8e
-      size: 145675
+      md5: d36a3e43a8e8bfb13e7c7fc4292e3f8b
+      size: 144963
     - path: artifacts/demand_over_time.png
       hash: md5
-      md5: b086c21b8bb6168bc8730241e93ddeb1
-      size: 113873
+      md5: f2604998bc495647eeafc12a4e231dd8
+      size: 113031
     - path: artifacts/metrics.json
       hash: md5
-      md5: fda485b45f4df40b181e05607aa76df3
-      size: 91
+      md5: 482fab74f82cbb3ac7b4a625e5025ffc
+      size: 92
     - path: artifacts/residuals.png
       hash: md5
-      md5: a0786a0dd9f053fe24e35642859a8938
-      size: 160611
+      md5: f85d3f6f5a11cfe9f427bf3eb59b11d8
+      size: 158599
     - path: artifacts/shap_casual.png
       hash: md5
-      md5: 7f53a19a8e4889507b7b3212f99b1480
-      size: 168216
+      md5: 2e22c85ba235e0614225ea7e6fed7342
+      size: 165386
     - path: artifacts/shap_registered.png
       hash: md5
-      md5: df1daa6d2e559794e326e4c1e45ea13a
-      size: 156385
+      md5: 9ea502c66ada3291e7ece446491fb4ea
+      size: 157732
   shift_dates:
     cmd: python src/bike_sharing/data/shift_dates.py
     deps:

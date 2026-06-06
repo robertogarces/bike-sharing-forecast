@@ -36,3 +36,5 @@ Thumbs.db
 .vscode/
 .idea/configs/model/best_params.yaml
 data/simulation_state.json
+data/predictions/
+data/predictions/

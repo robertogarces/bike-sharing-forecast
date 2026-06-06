@@ -1,7 +1,7 @@
 # configs/model/lgbm.yaml
 n_trials: 50
 random_state: 42
-tune: true                    # false = skip Optuna, load best_params.yaml
+tune: false                    # false = skip Optuna, load best_params.yaml
 best_params_path: configs/model/best_params.yaml
 
 # Fixed params (not tuned)
