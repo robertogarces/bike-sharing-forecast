@@ -51,6 +51,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/simulation_state.json dvc.lock
+          dvc push
+          git add data/raw/hour_past.csv.dvc data/raw/hour_future.csv.dvc data/simulation_state.json.dvc dvc.lock
           git diff --staged --quiet || git commit -m "chore: hourly simulation update [skip ci]"
           git push
