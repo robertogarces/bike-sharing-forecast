@@ -115,28 +115,28 @@ stages:
     outs:
     - path: artifacts/actual_vs_predicted.png
       hash: md5
-      md5: d36a3e43a8e8bfb13e7c7fc4292e3f8b
-      size: 144963
+      md5: 9afbf82e5adcbad85531abf67cf3d127
+      size: 152720
     - path: artifacts/demand_over_time.png
       hash: md5
-      md5: f2604998bc495647eeafc12a4e231dd8
-      size: 113031
+      md5: b03fe07d5773cda3b7ee53c9165ef99a
+      size: 119989
     - path: artifacts/metrics.json
       hash: md5
       md5: 482fab74f82cbb3ac7b4a625e5025ffc
       size: 92
     - path: artifacts/residuals.png
       hash: md5
-      md5: f85d3f6f5a11cfe9f427bf3eb59b11d8
-      size: 158599
+      md5: 55490668f6c68f47e530d9d4c6fb029f
+      size: 171843
     - path: artifacts/shap_casual.png
       hash: md5
-      md5: c97131af72d343c3ee58b0aa118d6f32
-      size: 167271
+      md5: dad98be8225bb1ad30064891cb4178e1
+      size: 176474
     - path: artifacts/shap_registered.png
       hash: md5
-      md5: fce88d93823563ca1d3463f831f4301b
-      size: 158317
+      md5: 94d1ee54b956cbf530cf41c2a99b534a
+      size: 169314
   shift_dates:
     cmd: python src/bike_sharing/data/shift_dates.py
     deps:
