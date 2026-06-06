@@ -6,6 +6,7 @@ from datetime import datetime
 import hydra
 import lightgbm as lgb
 import numpy as np
+import mlflow
 import pandas as pd
 from omegaconf import DictConfig
 
@@ -131,7 +132,6 @@ def append_prediction(pred_row: dict, pred_path: Path) -> None:
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     raw_dir       = Path(cfg.paths.raw_dir)
-    artifacts_dir = Path(cfg.paths.artifacts_dir)
     state_path    = Path(cfg.paths.simulation_state)
     pred_path     = Path(cfg.paths.predictions_path)
 
@@ -161,9 +161,15 @@ def main(cfg: DictConfig) -> None:
     else:
         logger.info(f"Data freshness OK — lag: {data_lag}")
 
-    # ── Load models ───────────────────────────────────────────────────────────
-    model_registered = lgb.Booster(model_file=str(artifacts_dir / "lgbm_registered.txt"))
-    model_casual     = lgb.Booster(model_file=str(artifacts_dir / "lgbm_casual.txt"))
+    # ── Load models from MLflow registry ─────────────────────────────────────
+    client = mlflow.tracking.MlflowClient()
+
+    model_registered = mlflow.lightgbm.load_model(
+        f"models:/{cfg.project}-registered@production"
+    )
+    model_casual = mlflow.lightgbm.load_model(
+        f"models:/{cfg.project}-casual@production"
+    )
 
     # ── Build features ────────────────────────────────────────────────────────
     logger.info("Building features for next hour")

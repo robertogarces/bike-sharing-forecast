@@ -73,8 +73,8 @@ stages:
       size: 772420
     - path: src/bike_sharing/models/train.py
       hash: md5
-      md5: a5cda2f22012117eac8630171102f3e7
-      size: 9558
+      md5: a22d45798d144c752b5c0dfe7e6b870e
+      size: 9747
     params:
       configs/model/lgbm.yaml:
         n_trials: 50

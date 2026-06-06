@@ -205,8 +205,17 @@ def main(cfg: DictConfig) -> None:
         # ── Log to MLflow ─────────────────────────────────────────────────────
         mlflow.log_params(best_params)
         mlflow.log_metrics(metrics)
-        mlflow.lightgbm.log_model(model_registered, name="model_registered")
-        mlflow.lightgbm.log_model(model_casual,     name="model_casual")
+
+        mlflow.lightgbm.log_model(
+            model_registered,
+            name="model_registered",
+            registered_model_name=f"{cfg.project}-registered",
+        )
+        mlflow.lightgbm.log_model(
+            model_casual,
+            name="model_casual",
+            registered_model_name=f"{cfg.project}-casual",
+        )
 
         # ── Save models locally ───────────────────────────────────────────────
         model_registered.booster_.save_model(str(artifacts_dir / "lgbm_registered.txt"))
