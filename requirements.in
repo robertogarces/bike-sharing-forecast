@@ -1,0 +1,29 @@
+# Data
+pandas
+numpy
+
+# ML
+lightgbm
+scikit-learn
+optuna
+shap
+
+# MLOps
+mlflow
+dvc
+dvc-http
+evidently==0.4.30
+
+# Config
+hydra-core
+omegaconf
+
+# Monitoring
+scipy
+
+# Testing
+pytest
+
+# Dashboard (viene después)
+streamlit
+plotly
