@@ -3,3 +3,4 @@
 /raw/hour_shifted.csv
 /processed
 /predictions
+/simulation_state.json
