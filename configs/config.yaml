@@ -4,6 +4,8 @@ defaults:
   - model: lgbm
   - simulation: default
   - paths: default
+  - monitoring: default
+  - training: default
   - _self_
 
 project: bike-sharing-forecast

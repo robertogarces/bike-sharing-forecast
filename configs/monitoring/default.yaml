@@ -1,0 +1,3 @@
+n_hours: 168          # number of hours to look back for drift detection, default is 7 days
+drift_threshold: 0.5  # drift threshold for monitoring, if the drift score is above this value, it will trigger an alert
+min_hours: 720        # minimum 30 days before running drift detection
