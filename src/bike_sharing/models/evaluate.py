@@ -115,8 +115,8 @@ def main(cfg: DictConfig) -> None:
 
     # ── Load models ───────────────────────────────────────────────────────────
     logger.info("Loading models from artifacts")
-    model_registered = lgb.Booster(model_file=str(artifacts_dir / "lgbm_registered.txt"))
-    model_casual     = lgb.Booster(model_file=str(artifacts_dir / "lgbm_casual.txt"))
+    model_registered = lgb.Booster(model_file=Path(cfg.paths.models_dir) / "lgbm_registered.txt")
+    model_casual     = lgb.Booster(model_file=Path(cfg.paths.models_dir) / "lgbm_casual.txt")
 
     # ── Predict ───────────────────────────────────────────────────────────────
     pred_registered = np.expm1(model_registered.predict(X_val))
@@ -133,7 +133,7 @@ def main(cfg: DictConfig) -> None:
     )
 
     # ── Save metrics ──────────────────────────────────────────────────────────────
-    metrics_path = artifacts_dir / "metrics.json"
+    metrics_path = Path(cfg.paths.evaluation_dir) / "metrics.json"
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=2)
     logger.info(f"Saved metrics to {metrics_path}")
@@ -142,26 +142,26 @@ def main(cfg: DictConfig) -> None:
     logger.info("Generating evaluation plots")
     plot_residuals(
         y_val_cnt, pred_combined,
-        artifacts_dir / "residuals.png"
+        Path(cfg.paths.evaluation_dir) / "residuals.png"
     )
     plot_actual_vs_predicted(
         y_val_cnt, pred_combined,
-        artifacts_dir / "actual_vs_predicted.png"
+        Path(cfg.paths.evaluation_dir) / "actual_vs_predicted.png"
     )
     plot_demand_over_time(
         y_val_cnt, pred_combined,
         val["dteday"],
-        artifacts_dir / "demand_over_time.png"
+        Path(cfg.paths.evaluation_dir) / "demand_over_time.png"
     )
 
     logger.info("Generating SHAP plots")
     plot_shap_summary(
         model_registered, X_val,
-        artifacts_dir / "shap_registered.png"
+        Path(cfg.paths.evaluation_dir) / "shap_registered.png"
     )
     plot_shap_summary(
         model_casual, X_val,
-        artifacts_dir / "shap_casual.png"
+        Path(cfg.paths.evaluation_dir) / "shap_casual.png"
 )
 
     # ── Log to MLflow ─────────────────────────────────────────────────────────
@@ -171,11 +171,11 @@ def main(cfg: DictConfig) -> None:
     mlflow.set_experiment(cfg.project)
     with mlflow.start_run(run_name="evaluation"):
         mlflow.log_metrics(metrics)
-        mlflow.log_artifact(str(artifacts_dir / "residuals.png"))
-        mlflow.log_artifact(str(artifacts_dir / "actual_vs_predicted.png"))
-        mlflow.log_artifact(str(artifacts_dir / "demand_over_time.png"))
-        mlflow.log_artifact(str(artifacts_dir / "shap_registered.png"))
-        mlflow.log_artifact(str(artifacts_dir / "shap_casual.png"))
+        mlflow.log_artifact(str(Path(cfg.paths.evaluation_dir) / "residuals.png"))
+        mlflow.log_artifact(str(Path(cfg.paths.evaluation_dir) / "actual_vs_predicted.png"))
+        mlflow.log_artifact(str(Path(cfg.paths.evaluation_dir) / "demand_over_time.png"))
+        mlflow.log_artifact(str(Path(cfg.paths.evaluation_dir) / "shap_registered.png"))
+        mlflow.log_artifact(str(Path(cfg.paths.evaluation_dir) / "shap_casual.png"))
         logger.info("Logged metrics and artifacts to MLflow")
 
 

@@ -26,28 +26,28 @@ stages:
       - random_state
       - tune
     outs:
-    - artifacts/lgbm_registered.txt
-    - artifacts/lgbm_casual.txt
+      - artifacts/models/lgbm_registered.txt
+      - artifacts/models/lgbm_casual.txt
 
   evaluate:
     cmd: python src/bike_sharing/models/evaluate.py
     deps:
-    - src/bike_sharing/models/evaluate.py
-    - configs/config.yaml
-    - data/processed/val.csv
-    - artifacts/lgbm_registered.txt
-    - artifacts/lgbm_casual.txt
+      - src/bike_sharing/models/evaluate.py
+      - configs/config.yaml
+      - data/processed/val.csv
+      - artifacts/models/lgbm_registered.txt
+      - artifacts/models/lgbm_casual.txt
     outs:
-    - artifacts/residuals.png:
-        cache: false
-    - artifacts/actual_vs_predicted.png:
-        cache: false
-    - artifacts/demand_over_time.png:
-        cache: false
-    - artifacts/shap_registered.png:
-        cache: false
-    - artifacts/shap_casual.png:
-        cache: false
+      - artifacts/evaluation/residuals.png:
+          cache: false
+      - artifacts/evaluation/actual_vs_predicted.png:
+          cache: false
+      - artifacts/evaluation/demand_over_time.png:
+          cache: false
+      - artifacts/evaluation/shap_registered.png:
+          cache: false
+      - artifacts/evaluation/shap_casual.png:
+          cache: false
     metrics:
-    - artifacts/metrics.json:
-        cache: false
+      - artifacts/evaluation/metrics.json:
+          cache: false
