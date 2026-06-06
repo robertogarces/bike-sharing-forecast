@@ -7,6 +7,7 @@ from omegaconf import DictConfig
 import json
 import mlflow
 from mlflow.tracking import MlflowClient
+from bike_sharing.utils.mlflow_utils import setup_mlflow
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +128,9 @@ def main(cfg: DictConfig) -> None:
     artifacts_dir   = Path(cfg.paths.artifacts_dir)
     drift_flag_path = artifacts_dir / "drift" / "drift_detected.json"
     force           = cfg.training.force_retrain
+
+    # ── Configure MLflow ──────────────────────────────────────────────────────
+    setup_mlflow()
 
     # ── Check if retraining is needed ─────────────────────────────────────────
     if not should_retrain(drift_flag_path, force):

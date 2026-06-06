@@ -11,6 +11,7 @@ import optuna
 import pandas as pd
 from omegaconf import DictConfig
 from sklearn.metrics import mean_squared_error, mean_squared_log_error, r2_score
+from bike_sharing.utils.mlflow_utils import setup_mlflow
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,7 @@ def main(cfg: DictConfig) -> None:
     fixed_params = dict(cfg.model.lgbm)
 
     # ── MLflow parent run ─────────────────────────────────────────────────────
+    setup_mlflow()
     mlflow.set_experiment(cfg.project)
 
     with mlflow.start_run(run_name="lgbm_optuna_split") as parent_run:

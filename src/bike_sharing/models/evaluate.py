@@ -14,6 +14,7 @@ import shap
 from omegaconf import DictConfig
 
 from bike_sharing.models.train import compute_metrics, FEATURES
+from bike_sharing.utils.mlflow_utils import setup_mlflow
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +165,9 @@ def main(cfg: DictConfig) -> None:
 )
 
     # ── Log to MLflow ─────────────────────────────────────────────────────────
+    setup_mlflow()
+    mlflow.set_experiment(cfg.project)
+
     mlflow.set_experiment(cfg.project)
     with mlflow.start_run(run_name="evaluation"):
         mlflow.log_metrics(metrics)

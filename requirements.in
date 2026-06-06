@@ -24,6 +24,8 @@ scipy
 # Testing
 pytest
 
-# Dashboard (viene después)
+# Dashboard
 streamlit
 plotly
+
+python-dotenv
