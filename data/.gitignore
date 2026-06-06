@@ -1,1 +1,5 @@
-/raw
+/raw/hour.csv
+/raw/day.csv
+/raw/hour_shifted.csv
+/processed
+/predictions
