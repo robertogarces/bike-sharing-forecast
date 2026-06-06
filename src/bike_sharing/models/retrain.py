@@ -19,25 +19,6 @@ def run_command(cmd: list[str]) -> None:
 
 
 def should_retrain(drift_flag_path: Path, force: bool) -> bool:
-    """
-    Determine whether retraining should proceed.
-
-    Retraining is triggered if:
-    - force=True (manual or scheduled retrain)
-    - drift_detected.json exists and drift_detected is True
-
-    Parameters
-    ----------
-    drift_flag_path : Path
-        Path to drift_detected.json.
-    force : bool
-        If True, retrain regardless of drift flag.
-
-    Returns
-    -------
-    bool
-        Whether to proceed with retraining.
-    """
     import json
 
     if force:
@@ -54,6 +35,10 @@ def should_retrain(drift_flag_path: Path, force: bool) -> bool:
     with open(drift_flag_path) as f:
         state = json.load(f)
 
+    if "reason" in state:
+        logger.warning(f"Drift detection was skipped — {state['reason']}")
+        return False
+
     if state["drift_detected"]:
         logger.info(
             f"Drift detected ({state['drift_share']:.0%} > {state['threshold']:.0%}) "
@@ -66,7 +51,6 @@ def should_retrain(drift_flag_path: Path, force: bool) -> bool:
             f"— skipping retraining"
         )
         return False
-
 
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
