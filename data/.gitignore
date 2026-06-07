@@ -2,5 +2,5 @@
 /raw/day.csv
 /raw/hour_shifted.csv
 /processed
-/predictions
+/predictions/predictions.csv
 /simulation_state.json

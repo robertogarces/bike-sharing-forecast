@@ -51,7 +51,6 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          dvc push
-          git add data/raw/hour_past.csv.dvc data/raw/hour_future.csv.dvc data/simulation_state.json.dvc dvc.lock
-          git diff --staged --quiet || git commit -m "chore: hourly simulation update [skip ci]"
+          git add data/raw/hour_past.csv.dvc data/raw/hour_future.csv.dvc data/simulation_state.json.dvc data/predictions/predictions.csv.dvc dvc.lock
+          git diff --staged --quiet || git commit -m "chore: sync local state after successful hourly workflow [skip ci]"
           git push
