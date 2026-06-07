@@ -17,9 +17,7 @@ def run_command(cmd: list[str]) -> None:
     Run a shell command and raise if it fails.
     """
     logger.info(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, check=True, capture_output=False)
-    if result.returncode != 0:
-        raise RuntimeError(f"Command failed: {' '.join(cmd)}")
+    subprocess.run(cmd, check=True, capture_output=False)
 
 
 def should_retrain(drift_flag_path: Path, force: bool) -> bool:
@@ -147,7 +145,7 @@ def main(cfg: DictConfig) -> None:
     client = MlflowClient()
 
     # Load metrics from latest evaluation
-    metrics_path = Path(cfg.paths.artifacts_dir) / "metrics.json"
+    metrics_path = Path(cfg.paths.artifacts_dir) / "evaluation" / "metrics.json"
     with open(metrics_path) as f:
         new_metrics = json.load(f)
 
