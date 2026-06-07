@@ -241,7 +241,7 @@ def main(cfg: DictConfig) -> None:
     X        = next_row[FEATURES]
 
     # ── Backfill missing predictions ──────────────────────────────────────────
-    missing_hours = get_missing_hours(past, pred_path)
+    missing_hours = get_missing_hours(past, pred_path, cfg.monitoring.max_backfill_hours)
 
     if missing_hours:
         logger.info(f"Backfilling {len(missing_hours)} missing predictions")
