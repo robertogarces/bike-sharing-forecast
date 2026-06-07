@@ -125,7 +125,7 @@ def make_objective(
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     processed_dir    = Path(cfg.dataset.processed_dir)
-    artifacts_dir    = Path("artifacts")
+    artifacts_dir    = Path(cfg.paths.artifacts_dir)
     best_params_path = Path(cfg.model.best_params_path)
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 

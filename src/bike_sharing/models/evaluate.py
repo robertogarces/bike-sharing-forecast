@@ -103,7 +103,6 @@ def plot_demand_over_time(y_true: np.ndarray, y_pred: np.ndarray, dates: pd.Seri
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     processed_dir = Path(cfg.dataset.processed_dir)
-    artifacts_dir = Path("artifacts")
 
     # ── Load data ─────────────────────────────────────────────────────────────
     logger.info("Loading validation data")
@@ -166,8 +165,6 @@ def main(cfg: DictConfig) -> None:
 
     # ── Log to MLflow ─────────────────────────────────────────────────────────
     setup_mlflow()
-    mlflow.set_experiment(cfg.project)
-
     mlflow.set_experiment(cfg.project)
     with mlflow.start_run(run_name="evaluation"):
         mlflow.log_metrics(metrics)
