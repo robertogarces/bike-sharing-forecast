@@ -11,4 +11,4 @@ requires-python = ">=3.11"
 where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["src"]
+testpaths = ["tests"]
