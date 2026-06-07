@@ -16,6 +16,7 @@ st.set_page_config(
 # ── Paths ─────────────────────────────────────────────────────────────────────
 ROOT          = Path(__file__).parents[3]
 PREDICTIONS   = ROOT / "data" / "predictions" / "predictions.csv"
+PAST          = ROOT / "data" / "raw" / "hour_past.csv"
 METRICS       = ROOT / "artifacts" / "metrics.json"
 STATE         = ROOT / "data" / "simulation_state.json"
 
@@ -28,6 +29,15 @@ def load_predictions() -> pd.DataFrame:
     df["timestamp_predicted"] = pd.to_datetime(df["timestamp_predicted"])
     df["predicted_at"]        = pd.to_datetime(df["predicted_at"])
     return df.sort_values("timestamp_predicted")
+
+
+@st.cache_data(ttl=60)
+def load_actuals() -> pd.DataFrame:
+    if not PAST.exists():
+        return pd.DataFrame()
+    df = pd.read_csv(PAST, parse_dates=["dteday"])
+    df["datetime"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
+    return df[["datetime", "cnt"]].rename(columns={"datetime": "timestamp_predicted", "cnt": "actual_total"})
 
 
 @st.cache_data(ttl=300)
@@ -52,6 +62,7 @@ def main():
     st.caption("Next-hour demand forecasting system · Predictions update every hour")
 
     predictions = load_predictions()
+    actuals     = load_actuals()
     metrics     = load_metrics()
     state       = load_state()
 
@@ -140,16 +151,27 @@ def main():
     st.subheader("Last 24 Hours — Prediction History")
 
     last_24 = predictions.tail(24)
+    last_24_with_actuals = last_24.merge(actuals, on="timestamp_predicted", how="left")
 
     fig_line = go.Figure()
     fig_line.add_trace(go.Scatter(
-        x=last_24["timestamp_predicted"],
-        y=last_24["pred_total"],
+        x=last_24_with_actuals["timestamp_predicted"],
+        y=last_24_with_actuals["pred_total"],
         mode="lines+markers",
         name="Predicted",
         line=dict(color="#1F77B4", width=2),
         marker=dict(size=6),
     ))
+    if last_24_with_actuals["actual_total"].notna().any():
+        actuals_known = last_24_with_actuals.dropna(subset=["actual_total"])
+        fig_line.add_trace(go.Scatter(
+            x=actuals_known["timestamp_predicted"],
+            y=actuals_known["actual_total"],
+            mode="lines+markers",
+            name="Actual",
+            line=dict(color="#E74C3C", width=2, dash="dot"),
+            marker=dict(size=6),
+        ))
     fig_line.update_layout(
         xaxis_title="Hour",
         yaxis_title="Bikes",
