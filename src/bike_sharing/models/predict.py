@@ -225,8 +225,6 @@ def main(cfg: DictConfig) -> None:
         logger.info(f"Data freshness OK — lag: {data_lag}")
 
     # ── Load models from MLflow registry ─────────────────────────────────────
-    client = mlflow.tracking.MlflowClient()
-
     model_registered = mlflow.lightgbm.load_model(
         f"models:/{cfg.project}-registered@production"
     )

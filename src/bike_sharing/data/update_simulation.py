@@ -118,8 +118,10 @@ def main(cfg: DictConfig) -> None:
         logger.info(f"Past: {len(past):,} records | Future: {len(future) - n_moved:,} records remaining")
 
     # ── Summary ───────────────────────────────────────────────────────────────
-    pct_remaining = (len(future) - n_moved) / (len(future) + len(past)) * 100
-    logger.info(f"Simulation progress: {100 - pct_remaining:.1f}% complete")
+    total_records = state["n_future_records"] + state["n_past_records"]
+    remaining     = len(future) - n_moved
+    pct_complete  = (total_records - remaining) / total_records * 100
+    logger.info(f"Simulation progress: {pct_complete:.1f}% complete")
 
 
 if __name__ == "__main__":
