@@ -11,8 +11,9 @@ This document explains what the simulation is, why it exists, how it works techn
 3. [Initialization](#3-initialization)
 4. [Configuration](#4-configuration)
 5. [Day-to-Day Operation](#5-day-to-day-operation)
-6. [Resetting the Simulation](#6-resetting-the-simulation)
-7. [What Happens When the Future Data Runs Out?](#7-what-happens-when-the-future-data-runs-out)
+6. [Backfilling Missing Predictions](#6-backfilling-missing-predictions)
+7. [Resetting the Simulation](#7-resetting-the-simulation)
+8. [What Happens When the Future Data Runs Out?](#8-what-happens-when-the-future-data-runs-out)
 
 ---
 
@@ -173,7 +174,43 @@ The operations dashboard (sidebar) shows the percentage of future data consumed 
 
 ---
 
-## 6. Resetting the Simulation
+## 6. Backfilling Missing Predictions
+
+The hourly workflow occasionally misses a run — a GitHub Actions delay, a manual skip, or a temporary outage. When `predict.py` detects a gap between the last saved prediction and the current hour, it automatically fills in the missing predictions before generating the current one.
+
+### How it works
+
+1. `get_missing_hours` reads `predictions.csv` and `hour_past.csv` and identifies hours that have already passed but have no prediction record.
+2. For each missing hour, it reconstructs the feature set using only the data that would have been available *at that moment* (i.e., records strictly before the target hour).
+3. It appends each backfilled prediction to `predictions.csv` before the normal prediction step runs.
+
+### Cold start
+
+If `predictions.csv` does not exist or is empty, backfill is skipped entirely. The assumption is that a fresh deployment starts cleanly — there are no gaps to fill because there was never a prediction to gap from.
+
+### Backfill cap
+
+Backfill is capped at `max_backfill_hours` (default: 48) to prevent filling months of history if the system was down for an extended period. Only the most recent `max_backfill_hours` gaps are filled; older ones are skipped with a warning:
+
+```
+[WARNING] - Gap of 312 hours detected — capping backfill at 48 hours. Older gaps will not be filled.
+```
+
+This cap is configurable in `configs/monitoring/default.yaml`:
+
+```yaml
+max_backfill_hours: 48
+```
+
+### Limitations
+
+- Backfill requires at least 168 hours (7 days) of prior history to build lag features. Hours with insufficient history are skipped.
+- Backfilled predictions are generated retroactively and will not match what the model would have predicted in real time if the model was retrained in the interim.
+- The `predicted_at` timestamp reflects when the backfill ran, not the original scheduled time.
+
+---
+
+## 7. Resetting the Simulation
 
 To restart the simulation from scratch — for example, to change `reference_date` or `future_pct` — delete the state file and the simulation data files, then re-initialize:
 
