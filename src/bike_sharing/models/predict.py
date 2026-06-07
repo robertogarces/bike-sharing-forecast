@@ -129,6 +129,69 @@ def append_prediction(pred_row: dict, pred_path: Path) -> None:
         df_new.to_csv(pred_path, index=False)
 
 
+def get_missing_hours(
+    past: pd.DataFrame,
+    pred_path: Path,
+    max_backfill_hours: int = 48,
+) -> list[pd.Timestamp]:
+    """
+    Identify hours in hour_past.csv that have no corresponding prediction
+    in predictions.csv, starting from the last existing prediction.
+
+    If predictions.csv does not exist or is empty, returns an empty list —
+    backfill only covers gaps in an already-running system, not cold starts.
+
+    Backfill is capped at max_backfill_hours to avoid filling years of
+    history if the system was down for a long time.
+
+    Parameters
+    ----------
+    past : pd.DataFrame
+        Full past dataset sorted chronologically.
+    pred_path : Path
+        Path to predictions.csv.
+    max_backfill_hours : int
+        Maximum number of hours to backfill (default: 48).
+
+    Returns
+    -------
+    list[pd.Timestamp]
+        Sorted list of datetimes missing from predictions.csv.
+    """
+    if not pred_path.exists():
+        logger.info("No existing predictions — skipping backfill (cold start)")
+        return []
+
+    existing = pd.read_csv(pred_path)
+    if existing.empty:
+        logger.info("No existing predictions — skipping backfill (cold start)")
+        return []
+
+    past = past.copy()
+    past["dteday"]   = pd.to_datetime(past["dteday"])
+    past["datetime"] = past["dteday"] + pd.to_timedelta(past["hr"], unit="h")
+
+    # Only look for gaps after the last existing prediction
+    last_predicted = pd.to_datetime(existing["timestamp_predicted"]).max()
+    predicted_hours = set(pd.to_datetime(existing["timestamp_predicted"]).tolist())
+
+    # Past hours after last prediction, excluding the last record (current hour)
+    candidate_hours = past[past["datetime"] > last_predicted]["datetime"].tolist()
+    candidate_hours = sorted(candidate_hours)[:-1]  # exclude last — predicted normally
+
+    missing = [h for h in candidate_hours if h not in predicted_hours]
+
+    if len(missing) > max_backfill_hours:
+        logger.warning(
+            f"Gap of {len(missing)} hours detected — "
+            f"capping backfill at {max_backfill_hours} hours. "
+            f"Older gaps will not be filled."
+        )
+        missing = missing[-max_backfill_hours:]
+
+    return missing
+
+
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     raw_dir       = Path(cfg.paths.raw_dir)
@@ -177,6 +240,47 @@ def main(cfg: DictConfig) -> None:
     next_row = build_next_hour_features(past, min_date)
     X        = next_row[FEATURES]
 
+    # ── Backfill missing predictions ──────────────────────────────────────────
+    missing_hours = get_missing_hours(past, pred_path)
+
+    if missing_hours:
+        logger.info(f"Backfilling {len(missing_hours)} missing predictions")
+
+        for target_dt in missing_hours:
+            # Build past slice up to the hour before target_dt
+            past["dteday"]   = pd.to_datetime(past["dteday"])
+            past["datetime"] = past["dteday"] + pd.to_timedelta(past["hr"], unit="h")
+            past_slice = past[past["datetime"] < target_dt].copy()
+
+            if len(past_slice) < 168:
+                logger.warning(f"Not enough history for backfill at {target_dt} — skipping")
+                continue
+
+            next_row = build_next_hour_features(past_slice, min_date)
+            X        = next_row[FEATURES]
+
+            pred_registered = float(np.expm1(model_registered.predict(X))[0])
+            pred_casual     = float(np.expm1(model_casual.predict(X))[0])
+            pred_total      = max(0, pred_registered + pred_casual)
+
+            # Get weather features for that hour from the actual record
+            actual_row = past[past["datetime"] == target_dt].iloc[0]
+
+            pred_record = {
+                "predicted_at":        datetime.now().isoformat(),
+                "timestamp_predicted": target_dt.isoformat(),
+                "hr":                  int(actual_row["hr"]),
+                "temp":                float(actual_row["temp"]),
+                "hum":                 float(actual_row["hum"]),
+                "weathersit":          int(actual_row["weathersit"]),
+                "workingday":          int(actual_row["workingday"]),
+                "pred_registered":     round(pred_registered, 2),
+                "pred_casual":         round(pred_casual, 2),
+                "pred_total":          round(pred_total, 2),
+            }
+            append_prediction(pred_record, pred_path)
+            logger.info(f"Backfilled prediction for {target_dt}")
+            
     # ── Predict ───────────────────────────────────────────────────────────────
     pred_registered = float(np.expm1(model_registered.predict(X))[0])
     pred_casual     = float(np.expm1(model_casual.predict(X))[0])
