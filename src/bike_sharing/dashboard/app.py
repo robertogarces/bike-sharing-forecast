@@ -17,7 +17,7 @@ st.set_page_config(
 ROOT          = Path(__file__).parents[3]
 PREDICTIONS   = ROOT / "data" / "predictions" / "predictions.csv"
 PAST          = ROOT / "data" / "raw" / "hour_past.csv"
-METRICS       = ROOT / "artifacts" / "metrics.json"
+METRICS       = ROOT / "artifacts" / "evaluation" / "metrics.json"
 STATE         = ROOT / "data" / "simulation_state.json"
 
 # ── Load data ─────────────────────────────────────────────────────────────────
