@@ -27,7 +27,7 @@ The system predicts demand for the **next hour** given current conditions and re
 
 The operations dashboard shows the next-hour forecast, a 24-hour prediction history, the registered-vs-casual breakdown, and model performance explained in plain language for non-technical operators.
 
-![Dashboard](artifacts/evaluation/dashboard.png)
+![Dashboard](docs/assets/dashboard.png)
 
 ---
 
