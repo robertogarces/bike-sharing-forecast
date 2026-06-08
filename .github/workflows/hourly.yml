@@ -44,6 +44,13 @@ jobs:
       - name: Predict next hour
         run: python src/bike_sharing/models/predict.py
 
+      - name: Register updated files with DVC
+        run: |
+          dvc add data/raw/hour_past.csv \
+                  data/raw/hour_future.csv \
+                  data/simulation_state.json \
+                  data/predictions/predictions.csv
+
       - name: Push updated data to DagsHub
         run: dvc push
 
