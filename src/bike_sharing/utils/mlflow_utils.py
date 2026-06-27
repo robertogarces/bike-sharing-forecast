@@ -29,3 +29,7 @@ def setup_mlflow() -> None:
 
     import mlflow
     mlflow.set_tracking_uri(tracking_uri)
+
+    import logging
+    logging.getLogger("azure").setLevel(logging.WARNING)
+    logging.getLogger("azureml").setLevel(logging.WARNING)
