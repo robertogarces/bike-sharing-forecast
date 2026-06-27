@@ -5,11 +5,12 @@ display_name: lgbm-pipeline-azure
 description: Full training pipeline on Azure ML — build features, train, evaluate
 
 command: >-
-  dvc pull -r azure &&
+  pip install -e . --quiet &&
+  dvc pull build_features -r azure &&
   python src/bike_sharing/models/train.py &&
   python src/bike_sharing/models/evaluate.py
 
 code: ..
-environment: azureml:bike-sharing-env:1
+environment: azureml:bike-sharing-env:7
 compute: azureml:cpu-cluster
 
