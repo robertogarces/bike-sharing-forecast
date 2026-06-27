@@ -36,6 +36,5 @@ Thumbs.db
 
 # IDE
 .vscode/
-configs/model/best_params.yaml
 data/predictions/predictions.csv
 .env
