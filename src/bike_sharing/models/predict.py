@@ -254,14 +254,13 @@ def main(cfg: DictConfig) -> None:
                 logger.warning(f"Not enough history for backfill at {target_dt} — skipping")
                 continue
 
-            next_row = build_next_hour_features(past_slice, min_date)
-            X        = next_row[FEATURES]
+            next_row_bf = build_next_hour_features(past_slice, min_date)
+            X_bf        = next_row_bf[FEATURES]
 
-            pred_registered = float(np.expm1(model_registered.predict(X))[0])
-            pred_casual     = float(np.expm1(model_casual.predict(X))[0])
-            pred_total      = max(0, pred_registered + pred_casual)
+            pred_registered_bf = float(np.expm1(model_registered.predict(X_bf))[0])
+            pred_casual_bf     = float(np.expm1(model_casual.predict(X_bf))[0])
+            pred_total_bf      = max(0, pred_registered_bf + pred_casual_bf)
 
-            # Get weather features for that hour from the actual record
             actual_row = past[past["datetime"] == target_dt].iloc[0]
 
             pred_record = {
@@ -272,9 +271,9 @@ def main(cfg: DictConfig) -> None:
                 "hum":                 float(actual_row["hum"]),
                 "weathersit":          int(actual_row["weathersit"]),
                 "workingday":          int(actual_row["workingday"]),
-                "pred_registered":     round(pred_registered, 2),
-                "pred_casual":         round(pred_casual, 2),
-                "pred_total":          round(pred_total, 2),
+                "pred_registered":     round(pred_registered_bf, 2),
+                "pred_casual":         round(pred_casual_bf, 2),
+                "pred_total":          round(pred_total_bf, 2),
             }
             append_prediction(pred_record, pred_path)
             logger.info(f"Backfilled prediction for {target_dt}")
