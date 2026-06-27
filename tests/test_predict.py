@@ -92,18 +92,18 @@ def test_get_missing_hours_empty_predictions_file(past_df, tmp_path):
 
 def test_get_missing_hours_detects_gap(past_df, tmp_path):
     pred_path = tmp_path / "predictions.csv"
-    # Only predict hour 0 — hours 1–8 are missing (hour 9 excluded as current)
+    # Only predict hour 0 — hours 1–9 are all missing
     pd.DataFrame([{"timestamp_predicted": "2024-06-01 00:00:00"}]).to_csv(pred_path, index=False)
     result = get_missing_hours(past_df, pred_path)
-    assert len(result) == 8
+    assert len(result) == 9
 
 
 def test_get_missing_hours_no_gap(past_df, tmp_path):
     pred_path = tmp_path / "predictions.csv"
-    # Predict all hours up to hour 8 (hour 9 is the current, excluded)
+    # Predict all 10 hours in past — nothing missing
     timestamps = [
         {"timestamp_predicted": (pd.Timestamp("2024-06-01") + pd.Timedelta(hours=i)).isoformat()}
-        for i in range(9)
+        for i in range(10)
     ]
     pd.DataFrame(timestamps).to_csv(pred_path, index=False)
     result = get_missing_hours(past_df, pred_path)
