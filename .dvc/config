@@ -2,3 +2,6 @@
     remote = origin
 ['remote "origin"']
     url = https://dagshub.com/robertogarces/bike-sharing-forecast.dvc
+['remote "azure"']
+    url = azure://dvc-remote/data
+    account_name = mlwbikesstorage7fbbf1c97
