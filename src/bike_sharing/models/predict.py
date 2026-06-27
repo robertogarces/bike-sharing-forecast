@@ -177,7 +177,7 @@ def get_missing_hours(
 
     # Past hours after last prediction, excluding the last record (current hour)
     candidate_hours = past[past["datetime"] > last_predicted]["datetime"].tolist()
-    candidate_hours = sorted(candidate_hours)[:-1]  # exclude last — predicted normally
+    candidate_hours = sorted(candidate_hours)
 
     missing = [h for h in candidate_hours if h not in predicted_hours]
 
