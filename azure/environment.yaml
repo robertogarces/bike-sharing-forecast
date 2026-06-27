@@ -1,0 +1,4 @@
+name: bike-sharing-env
+version: "1"
+conda_file: conda.yaml
+image: mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04

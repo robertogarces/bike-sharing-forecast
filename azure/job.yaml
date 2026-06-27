@@ -1,0 +1,15 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+
+experiment_name: bike-sharing-forecast
+display_name: lgbm-pipeline-azure
+description: Full training pipeline on Azure ML — build features, train, evaluate
+
+command: >-
+  dvc pull -r azure &&
+  python src/bike_sharing/models/train.py &&
+  python src/bike_sharing/models/evaluate.py
+
+code: ..
+environment: azureml:bike-sharing-env:1
+compute: azureml:cpu-cluster
+
