@@ -30,6 +30,20 @@ jobs:
             -g rg-bike-sharing \
             -w mlw-bike-sharing || echo "Endpoint already exists"
 
+      - name: Grant endpoint managed identity access
+        run: |
+          PRINCIPAL_ID=$(az ml online-endpoint show \
+            -n bike-sharing-ep \
+            -g rg-bike-sharing \
+            -w mlw-bike-sharing \
+            --query identity.principal_id -o tsv)
+          az role assignment create \
+            --assignee $PRINCIPAL_ID \
+            --role "AzureML Data Scientist" \
+            --scope /subscriptions/c1e35fa8-f310-4b3d-b316-7a220c06c672/resourceGroups/rg-bike-sharing \
+            || echo "Role already assigned"
+          sleep 30
+
       - name: Deploy model
         run: |
           az ml online-deployment create \
