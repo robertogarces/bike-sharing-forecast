@@ -192,8 +192,7 @@ def get_missing_hours(
     return missing
 
 
-@hydra.main(config_path="../../../configs", config_name="config", version_base=None)
-def main(cfg: DictConfig) -> None:
+def run(cfg: DictConfig) -> None:
     raw_dir       = Path(cfg.paths.raw_dir)
     state_path    = Path(cfg.paths.simulation_state)
     pred_path     = Path(cfg.paths.predictions_path)
@@ -306,6 +305,11 @@ def main(cfg: DictConfig) -> None:
 
     append_prediction(pred_record, pred_path)
     logger.info(f"Prediction saved to {pred_path}")
+
+
+@hydra.main(config_path="../../../configs", config_name="config", version_base=None)
+def main(cfg: DictConfig) -> None:
+    run(cfg)
 
 
 if __name__ == "__main__":

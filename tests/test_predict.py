@@ -156,3 +156,110 @@ def test_append_prediction_skips_duplicate(sample_pred, tmp_path):
 
     df = pd.read_csv(pred_path)
     assert len(df) == 1
+
+
+# ── run(): backfill must not corrupt the main (next-hour) prediction ──────────
+
+class _FakeModel:
+    """
+    Model stub whose prediction is a deterministic function of the target hour.
+
+    Returns log1p(cnt_lag_1); after predict.py applies expm1, the prediction
+    equals cnt_lag_1 — the cnt of the hour right before the target. With a
+    unique cnt per hour this makes every hour's prediction unique, so we can
+    detect whether the main prediction used next_dt's features or stale
+    backfill features.
+    """
+    def predict(self, X):
+        return np.log1p(X["cnt_lag_1"].values)
+
+
+def _make_past(n: int = 200):
+    dates = pd.date_range("2024-01-01", periods=n, freq="h")
+    past = pd.DataFrame({
+        "instant":    range(1, n + 1),
+        "dteday":     dates.date,
+        "season":     1,
+        "yr":         0,
+        "mnth":       dates.month,
+        "hr":         dates.hour,
+        "holiday":    0,
+        "weekday":    dates.dayofweek,
+        "workingday": (dates.dayofweek < 5).astype(int),
+        "weathersit": 1,
+        "temp":       0.5,
+        "atemp":      0.5,
+        "hum":        0.5,
+        "windspeed":  0.2,
+        "casual":     10,
+        "registered": 90,
+        "cnt":        np.arange(1, n + 1),  # unique per hour → unique cnt_lag_1
+    })
+    return dates, past
+
+
+def test_run_main_prediction_uses_next_hour_not_backfill(monkeypatch, tmp_path):
+    """
+    Regression test for the backfill feature-reuse bug.
+
+    When backfill runs, the final next-hour prediction must be computed from
+    next_dt's own features — not the last backfilled hour's. The bug overwrote
+    X and next_row inside the backfill loop and reused them for the main
+    prediction, producing a duplicate of the current hour with the wrong hr.
+    """
+    import mlflow.lightgbm
+    from omegaconf import OmegaConf
+    from bike_sharing.models import predict as predict_mod
+
+    n = 200
+    dates, past = _make_past(n)
+
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    past.to_csv(raw_dir / "hour_past.csv", index=False)
+
+    # Predictions exist for every hour except the last three → 3-hour backfill
+    pred_path = tmp_path / "predictions.csv"
+    seeded = [dates[i] for i in range(n - 3)]
+    pd.DataFrame({
+        "predicted_at":        [d.isoformat() for d in seeded],
+        "timestamp_predicted": [d.isoformat() for d in seeded],
+        "hr":                  [d.hour for d in seeded],
+        "temp": 0.5, "hum": 0.5, "weathersit": 1, "workingday": 1,
+        "pred_registered": 1.0, "pred_casual": 1.0, "pred_total": 2.0,
+    }).to_csv(pred_path, index=False)
+
+    state_path = tmp_path / "simulation_state.json"
+    state_path.write_text("{}")
+
+    cfg = OmegaConf.create({
+        "project": "bike-sharing-forecast",
+        "paths": {
+            "raw_dir":          str(raw_dir),
+            "input_file":       "hour_past.csv",
+            "simulation_state": str(state_path),
+            "predictions_path": str(pred_path),
+        },
+        "monitoring": {"max_backfill_hours": 48},
+    })
+
+    monkeypatch.setattr(mlflow.lightgbm, "load_model", lambda *a, **k: _FakeModel())
+
+    predict_mod.run(cfg)
+
+    out = pd.read_csv(pred_path)
+    out["ts"] = pd.to_datetime(out["timestamp_predicted"])
+
+    # 1. No row may have an hr that disagrees with its own timestamp
+    assert (out["ts"].dt.hour == out["hr"]).all()
+
+    # 2. The run wrote the 3 missing past hours (backfill) + next_dt (main)
+    next_dt = dates[n - 1] + pd.Timedelta(hours=1)
+    new = out[out["ts"] > dates[n - 4]].sort_values("ts")
+    assert new["ts"].tolist() == [dates[n - 3], dates[n - 2], dates[n - 1], next_dt]
+
+    # 3. The main prediction used next_dt's own lag_1 = last past cnt = n,
+    #    not the last backfilled hour's (n - 1) → it is not a duplicate.
+    main_row = out[out["ts"] == next_dt].iloc[0]
+    assert main_row["hr"] == next_dt.hour
+    assert round(main_row["pred_registered"]) == n
