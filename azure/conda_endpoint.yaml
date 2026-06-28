@@ -1,0 +1,14 @@
+name: bike-sharing-endpoint
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip:
+    - lightgbm==4.6.0
+    - mlflow==2.15.1
+    - azureml-mlflow==1.59.0
+    - numpy==1.26.4
+    - pandas==2.3.3
+    - scikit-learn==1.8.0
+    - setuptools<81
+    - azureml-inference-server-http

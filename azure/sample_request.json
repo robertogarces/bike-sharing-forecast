@@ -1,0 +1,26 @@
+{
+  "data": [
+    {
+      "hr_sin": 0.866,
+      "hr_cos": -0.5,
+      "hr_workday": 8,
+      "hr_weekend": 0,
+      "hr_x_season": 16,
+      "is_rush_hour": 1,
+      "days_since_start": 500,
+      "temp": 0.54,
+      "hum": 0.55,
+      "weathersit": 1,
+      "cnt_lag_1": 150,
+      "cnt_lag_2": 80,
+      "cnt_lag_3": 45,
+      "cnt_lag_8": 20,
+      "cnt_lag_24": 185,
+      "cnt_lag_48": 172,
+      "cnt_lag_72": 165,
+      "cnt_lag_168": 178,
+      "cnt_rolling_mean_24": 115,
+      "cnt_rolling_mean_168": 125
+    }
+  ]
+}
