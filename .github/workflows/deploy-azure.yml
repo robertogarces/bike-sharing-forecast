@@ -28,8 +28,7 @@ jobs:
           az ml online-endpoint create \
             -f azure/endpoint.yaml \
             -g rg-bike-sharing \
-            -w mlw-bike-sharing \
-            --no-wait || echo "Endpoint already exists"
+            -w mlw-bike-sharing || echo "Endpoint already exists"
 
       - name: Deploy model
         run: |
