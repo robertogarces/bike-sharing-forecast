@@ -1,6 +1,6 @@
 # Bike Sharing Demand Forecasting
 
-> A production-style hourly demand forecasting system for a bike sharing operator, simulating a live environment where new data arrives every hour, predictions run continuously, and the model retrains itself when data drift is detected.
+> A production-style hourly demand forecasting system for a bike sharing operator, simulating a live environment where new data arrives every hour, predictions run continuously, and the model retrains itself when data drift is detected — with a parallel cloud deployment on Azure ML.
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
 ![LightGBM](https://img.shields.io/badge/Model-LightGBM-green)
