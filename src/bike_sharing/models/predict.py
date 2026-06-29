@@ -172,8 +172,8 @@ def get_missing_hours(
     past["datetime"] = past["dteday"] + pd.to_timedelta(past["hr"], unit="h")
 
     # Only look for gaps after the last existing prediction
-    last_predicted = pd.to_datetime(existing["timestamp_predicted"]).max()
-    predicted_hours = set(pd.to_datetime(existing["timestamp_predicted"]).tolist())
+    last_predicted = pd.to_datetime(existing["timestamp_predicted"], format="ISO8601").max()
+    predicted_hours = set(pd.to_datetime(existing["timestamp_predicted"], format="ISO8601").tolist())
 
     # Past hours after last prediction, excluding the last record (current hour)
     candidate_hours = past[past["datetime"] > last_predicted]["datetime"].tolist()

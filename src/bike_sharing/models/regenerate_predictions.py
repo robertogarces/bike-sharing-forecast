@@ -60,7 +60,7 @@ def main(cfg: DictConfig) -> None:
 
     # ── Keep older predictions untouched ──────────────────────────────────────
     existing = pd.read_csv(pred_path)
-    existing["_ts"] = pd.to_datetime(existing["timestamp_predicted"])
+    existing["_ts"] = pd.to_datetime(existing["timestamp_predicted"], format="ISO8601")
     old_rows = existing[existing["_ts"] < cutoff].drop(columns="_ts")
     logger.info(f"Keeping {len(old_rows)} existing rows before cutoff (untouched)")
 

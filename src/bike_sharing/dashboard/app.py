@@ -26,8 +26,8 @@ def load_predictions() -> pd.DataFrame:
     if not PREDICTIONS.exists():
         return pd.DataFrame()
     df = pd.read_csv(PREDICTIONS)
-    df["timestamp_predicted"] = pd.to_datetime(df["timestamp_predicted"])
-    df["predicted_at"]        = pd.to_datetime(df["predicted_at"])
+    df["timestamp_predicted"] = pd.to_datetime(df["timestamp_predicted"], format="ISO8601")
+    df["predicted_at"]        = pd.to_datetime(df["predicted_at"], format="ISO8601")
     return df.sort_values("timestamp_predicted")
 
 
