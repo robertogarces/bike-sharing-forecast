@@ -60,18 +60,30 @@ See [`docs/simulation.md`](docs/simulation.md) for details.
 
 The system separates a **static pipeline** (run when code or data definitions change) from a **dynamic production layer** (run continuously on a schedule).
 
-```
-Static pipeline (DVC)                Dynamic layer (GitHub Actions)
-─────────────────────                ──────────────────────────────
-make_dataset                         hourly:  update_simulation -> predict
-   |                                 weekly:  drift_detection -> retrain
-shift_dates (init, run once)
-   |
-build_features
-   |
-train  ──>  MLflow registry (DagsHub)
-   |
-evaluate
+```mermaid
+flowchart LR
+    raw[Raw data\nUCI Bike Sharing] --> make[make_dataset]
+    make --> shift[shift_dates]
+    shift --> feat[build_features]
+    feat --> train[train · LightGBM x2]
+    train --> eval[evaluate]
+    train --> reg[(MLflow Registry\nDagsHub / Azure ML)]
+    train -.-> mlflow[(MLflow Tracking\nDagsHub / Azure ML)]
+    eval -.-> mlflow
+
+    reg --> predict[predict]
+    predict --> csv[predictions.csv]
+    csv --> dash[Streamlit Dashboard]
+
+    reg --> endpoint[Azure ML\nOnline Endpoint]
+    endpoint --> api[REST API\nregistered · casual · total]
+
+    drift[drift_detection] --> retrain[retrain]
+    retrain --> reg
+
+    gh[GitHub Actions] -->|hourly| predict
+    gh -->|weekly| drift
+    gh -->|manual OIDC| endpoint
 ```
 
 - **Hourly:** reveal newly-arrived records, predict the next hour, log the prediction.
