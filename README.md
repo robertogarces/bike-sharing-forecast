@@ -61,34 +61,24 @@ See [`docs/simulation.md`](docs/simulation.md) for details.
 The system separates a **static pipeline** (run when code or data definitions change) from a **dynamic production layer** (run continuously on a schedule).
 
 ```mermaid
-flowchart TB
-    subgraph static["Static pipeline · DVC (run on code/data change)"]
-        direction LR
-        raw["Raw data<br/>UCI via Kaggle"] --> make["make_dataset"] --> shift["shift_dates"] --> feat["build_features"] --> train["train<br/>LightGBM × 2"] --> eval["evaluate"]
-    end
-
-    track[("MLflow Tracking<br/>DagsHub / Azure ML")]
-    reg[("Model Registry<br/>DagsHub / Azure ML")]
-    train --> reg
-    train -.-> track
+flowchart LR
+    raw["Raw data<br/>UCI via Kaggle"] --> make[make_dataset] --> shift["shift_dates<br/>(init simulation)"] --> feat[build_features] --> train["train<br/>LightGBM × 2"] --> eval[evaluate]
+    train --> reg[("Model Registry<br/>DagsHub / Azure ML")]
+    train -.-> track[("MLflow Tracking<br/>DagsHub / Azure ML")]
     eval -.-> track
 
-    subgraph dynamic["Dynamic layer · GitHub Actions (scheduled)"]
-        direction LR
-        hourly(["hourly"]) --> update["update_simulation"] --> predict["predict"] --> preds[("predictions.csv")]
-        weekly(["weekly"]) --> drift["drift_detection"] --> retrain["retrain"]
-    end
-
+    cronH(["GitHub Actions<br/>hourly · automatic"]) --> predict["update_simulation<br/>→ predict"] --> preds[("predictions.csv")] --> dash["Streamlit Dashboard"]
     reg --> predict
-    retrain --> reg
-    preds --> dash["Streamlit Dashboard"]
 
-    subgraph cloud["Cloud · Azure Managed Online Endpoint"]
-        direction LR
-        deploy(["manual · OIDC"]) --> endpoint["score.py<br/>init + run"] --> api["REST API<br/>registered · casual · total"]
-    end
+    cronW(["GitHub Actions<br/>weekly · automatic"]) --> drift{"drift detected?"}
+    drift -->|yes| retrain[retrain] -.->|promote if better| reg
+    drift -->|no| keep["keep current model"]
 
+    deploy(["GitHub Actions<br/>manual · OIDC"]) --> endpoint["Azure Online Endpoint<br/>score.py"] --> api["REST API<br/>registered · casual · total"]
     reg --> endpoint
+
+    classDef gha fill:#2088FF,color:#ffffff,stroke:#1b6fd6;
+    class cronH,cronW,deploy gha
 ```
 
 - **Hourly:** reveal newly-arrived records, predict the next hour, log the prediction.
