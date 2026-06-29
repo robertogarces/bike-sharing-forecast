@@ -59,12 +59,12 @@ Metrics are reported on the validation set (chronological hold-out, never seen d
 
 | Metric | Value | What it means in plain language |
 |---|---|---|
-| **RMSE** | ~45 bikes/hr | On a typical hour the model is off by about 45 bikes |
+| **RMSE** | ~51 bikes/hr | On a typical hour the model is off by about 51 bikes |
 | **RMSLE** | ~0.23 | The model's predictions are off by roughly 23% on a relative scale |
-| **R²** | ~0.96 | The model explains about 96% of the variability in hourly demand |
+| **R²** | ~0.95 | The model explains about 95% of the variability in hourly demand |
 
 **Context for RMSE:**  
-The validation set has a mean demand of ~176 bikes/hr and a standard deviation of ~167 bikes/hr. An RMSE of 45 represents approximately a 26% average error relative to the mean — reasonable for a system with high variability and no access to real-time weather forecasts.
+The validation set has a mean demand of ~176 bikes/hr and a standard deviation of ~167 bikes/hr. An RMSE of 51 represents approximately a 29% average error relative to the mean — reasonable for a system with high variability and no access to real-time weather forecasts.
 
 **RMSLE as the primary metric:**  
 RMSLE penalises relative errors rather than absolute ones, treating a 50-bike error at low demand (e.g. 100 bikes) as more costly than the same 50-bike error at high demand (e.g. 600 bikes). This is the appropriate metric for right-skewed demand data and is the official evaluation metric for this dataset on Kaggle.
@@ -74,8 +74,8 @@ RMSLE penalises relative errors rather than absolute ones, treating a 50-bike er
 | Model | RMSE | RMSLE | R² |
 |---|---|---|---|
 | Random Forest (no tuning, single model) | 52.78 | 0.265 | 0.943 |
-| LightGBM (tuned, split model) | ~45 | ~0.23 | ~0.96 |
-| Improvement | ~15% | ~13% | +1.7pp |
+| LightGBM (tuned, split model) | ~51 | ~0.23 | ~0.95 |
+| Improvement | ~3% | ~13% | +0.7pp |
 
 ---
 
@@ -89,7 +89,7 @@ RMSLE penalises relative errors rather than absolute ones, treating a 50-bike er
 
 ### Not recommended for
 
-- **Multi-day demand forecasting** — the model relies on short-term lag features (1–3 hours) that are not available beyond next-hour prediction. Validation experiments showed RMSE nearly doubles (~45 → ~87) when these lags are imputed for D+1 forecasting. See `notebooks/03_batch_scoring_validation.ipynb`.
+- **Multi-day demand forecasting** — the model relies on short-term lag features (1–3 hours) that are not available beyond next-hour prediction. Validation experiments showed RMSE rises sharply (~51 → ~87) when these lags are imputed for D+1 forecasting. See `notebooks/03_batch_scoring_validation.ipynb`.
 - **Other cities or systems** — the model was trained exclusively on Washington D.C. Capital Bikeshare data. Demand patterns, weather sensitivities, and seasonal cycles reflect that specific city and infrastructure. Do not expect accurate predictions for other cities without retraining on local data.
 - **Event-driven demand spikes** — the model has no knowledge of special events (concerts, marathons, protests). Large crowd events can produce demand spikes that fall far outside the training distribution.
 - **Real-time operational decisions requiring sub-hour precision** — the model predicts at hourly granularity. It is not designed for minute-level dispatch decisions.
@@ -101,7 +101,7 @@ RMSLE penalises relative errors rather than absolute ones, treating a 50-bike er
 The model outputs a single number: the predicted total bike demand for the next hour. This should be interpreted as an **estimate of expected demand**, not a guaranteed count.
 
 **Practical interpretation:**  
-If the model predicts 200 bikes for the next hour, the actual demand is likely to fall within roughly ±45 bikes of that figure (one RMSE). However, errors are not uniformly distributed — peak hours (8 AM, 5–6 PM on weekdays) tend to have larger absolute errors because demand variability is highest during those periods.
+If the model predicts 200 bikes for the next hour, the actual demand is likely to fall within roughly ±51 bikes of that figure (one RMSE). However, errors are not uniformly distributed — peak hours (8 AM, 5–6 PM on weekdays) tend to have larger absolute errors because demand variability is highest during those periods.
 
 **Registered vs casual breakdown:**  
 The dashboard also shows the registered and casual components separately. This is operationally useful:

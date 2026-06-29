@@ -36,9 +36,9 @@ The operations dashboard shows the next-hour forecast, a 24-hour prediction hist
 
 | Metric | Value | What it means |
 |---|---|---|
-| RMSE | ~45 bikes/hr | On a typical hour the model is off by about 45 bikes |
+| RMSE | ~51 bikes/hr | On a typical hour the model is off by about 51 bikes |
 | RMSLE | ~0.23 | Average relative error of roughly 23% |
-| R² | ~0.96 | The model explains about 96% of demand variability |
+| R² | ~0.95 | The model explains about 95% of demand variability |
 
 The model is a tuned LightGBM trained on the UCI Bike Sharing dataset, evaluated on a strict temporal hold-out (never a random split, which would leak future information).
 
@@ -61,29 +61,34 @@ See [`docs/simulation.md`](docs/simulation.md) for details.
 The system separates a **static pipeline** (run when code or data definitions change) from a **dynamic production layer** (run continuously on a schedule).
 
 ```mermaid
-flowchart LR
-    raw[Raw data\nUCI Bike Sharing] --> make[make_dataset]
-    make --> shift[shift_dates]
-    shift --> feat[build_features]
-    feat --> train[train · LightGBM x2]
-    train --> eval[evaluate]
-    train --> reg[(MLflow Registry\nDagsHub / Azure ML)]
-    train -.-> mlflow[(MLflow Tracking\nDagsHub / Azure ML)]
-    eval -.-> mlflow
+flowchart TB
+    subgraph static["Static pipeline · DVC (run on code/data change)"]
+        direction LR
+        raw["Raw data<br/>UCI via Kaggle"] --> make["make_dataset"] --> shift["shift_dates"] --> feat["build_features"] --> train["train<br/>LightGBM × 2"] --> eval["evaluate"]
+    end
 
-    reg --> predict[predict]
-    predict --> csv[predictions.csv]
-    csv --> dash[Streamlit Dashboard]
+    track[("MLflow Tracking<br/>DagsHub / Azure ML")]
+    reg[("Model Registry<br/>DagsHub / Azure ML")]
+    train --> reg
+    train -.-> track
+    eval -.-> track
 
-    reg --> endpoint[Azure ML\nOnline Endpoint]
-    endpoint --> api[REST API\nregistered · casual · total]
+    subgraph dynamic["Dynamic layer · GitHub Actions (scheduled)"]
+        direction LR
+        hourly(["hourly"]) --> update["update_simulation"] --> predict["predict"] --> preds[("predictions.csv")]
+        weekly(["weekly"]) --> drift["drift_detection"] --> retrain["retrain"]
+    end
 
-    drift[drift_detection] --> retrain[retrain]
+    reg --> predict
     retrain --> reg
+    preds --> dash["Streamlit Dashboard"]
 
-    gh[GitHub Actions] -->|hourly| predict
-    gh -->|weekly| drift
-    gh -->|manual OIDC| endpoint
+    subgraph cloud["Cloud · Azure Managed Online Endpoint"]
+        direction LR
+        deploy(["manual · OIDC"]) --> endpoint["score.py<br/>init + run"] --> api["REST API<br/>registered · casual · total"]
+    end
+
+    reg --> endpoint
 ```
 
 - **Hourly:** reveal newly-arrived records, predict the next hour, log the prediction.
@@ -97,16 +102,20 @@ See [`docs/architecture.md`](docs/architecture.md) for the full design.
 
 This project includes a cloud deployment layer using Azure ML, running **in parallel** with the existing DagsHub + GitHub Actions setup — the live hourly system remains untouched. The purpose is demonstrating production-grade MLOps on a managed platform: model registry, REST inference API, and CI/CD with federated authentication.
 
+> 📖 For the full walkthrough — training on Azure compute, design decisions, cost control, and lessons learned — see [`docs/azure.md`](docs/azure.md).
+
 ### What was deployed
 
 | Component | Azure Service |
 |---|---|
+| Data versioning | Azure Blob Storage (DVC remote, parallel to DagsHub) |
+| Model training | Azure ML Command Job (on a compute cluster that scales to zero) |
 | Experiment tracking | Azure ML Workspace (built-in MLflow server) |
 | Model registry | Azure ML Model Registry |
 | REST inference API | Managed Online Endpoint |
 | CI/CD | GitHub Actions with OIDC federated auth |
 
-### Architecture
+### Cloud architecture
 
 ```
 GitHub Actions (workflow_dispatch)
@@ -268,6 +277,7 @@ The `Makefile` provides a single entry point for all operations. Rather than rem
 | `make update` | Reveal new records from future to past |
 | `make predict` | Update simulation and predict next-hour demand |
 | `make drift` | Run drift detection |
+| `make drift-report` | Open the latest Evidently drift report (HTML) |
 | `make retrain` | Retrain the model if drift is detected |
 | `make retrain-force` | Force a retrain regardless of drift |
 | `make dashboard` | Launch the Streamlit operations dashboard |
@@ -294,7 +304,7 @@ bike-sharing/
 │   ├── monitoring/         # drift_detection
 │   ├── dashboard/          # Streamlit app
 │   └── utils/              # MLflow setup
-├── tests/                  # 32 unit tests
+├── tests/                  # 41 unit tests
 ├── artifacts/
 │   ├── models/             # Trained model files
 │   ├── evaluation/         # Metrics, SHAP, residual plots
@@ -337,12 +347,13 @@ bike-sharing/
 | [Feature Engineering](docs/feature_engineering.md) | EDA insights, engineered features, mutual information ranking, decisions |
 | [Model Card](docs/model_card.md) | Model description, metrics, intended use, limitations |
 | [Simulation](docs/simulation.md) | How the simulation works, initialization, reset, configuration |
+| [Azure Deployment](docs/azure.md) | Cloud architecture, training jobs, endpoint, OIDC CI/CD, cost, lessons learned |
 
 ---
 
 ## Data
 
-**Source:** [UCI Bike Sharing Dataset](https://archive.ics.uci.edu/dataset/275/bike+sharing+dataset)
+**Source:** [UCI Bike Sharing Dataset](https://archive.ics.uci.edu/dataset/275/bike+sharing+dataset) — downloaded via a Kaggle mirror (see Prerequisites)
 **Records:** 17,379 hourly observations (2011–2012)
 **Target:** `cnt` — total bike rentals per hour, modelled as `registered + casual`
 
