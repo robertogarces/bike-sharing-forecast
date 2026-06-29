@@ -131,7 +131,7 @@ Loads the trained models, runs predictions on the validation set, computes metri
 Three workflows automate the production layer:
 
 ### `ci.yml` — Continuous Integration
-Runs on every push to `main`. Executes the full test suite (32 unit tests) on a clean Ubuntu environment. Catches regressions before they reach production.
+Runs on every push to `main`. Executes the full test suite (41 unit tests) on a clean Ubuntu environment. Catches regressions before they reach production.
 
 ### `hourly.yml` — Hourly Prediction
 Runs every hour at minute 0 (`cron: "0 * * * *"`). Steps:
@@ -198,3 +198,5 @@ DagsHub provides DVC remote storage and a hosted MLflow server in a single free 
 | Configuration | Hydra | Local |
 
 All credentials (DagsHub token, Kaggle token, MLflow tracking URI) are stored as GitHub Secrets and never committed to the repository. Local development uses a `.env` file that is git-ignored.
+
+**Parallel Azure ML deployment:** the same MLOps concepts were also implemented on Azure ML — a DVC remote on Blob Storage, training as an Azure ML Command Job, experiment tracking and model registry in the workspace, a managed online endpoint, and OIDC-based CI/CD — running alongside the DagsHub setup without touching the live system. See [docs/azure.md](azure.md) for the full walkthrough.

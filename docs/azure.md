@@ -4,11 +4,11 @@ This document describes the Azure ML deployment layer of the project: what was b
 pieces fit together, the design decisions behind them, and the practical lessons learned operating
 the platform hands-on.
 
-This layer is **demonstrative**. The goal is to show production-grade MLOps on a managed cloud
-platform — not to run the system permanently. It runs **in parallel** with the existing DagsHub +
-GitHub Actions setup; the live hourly system is never touched. Everything lives in a single Resource
-Group so the whole stack can be torn down with one command after capturing evidence, keeping cost
-under ~$10 of the free credit.
+This layer is a **learning exercise**. The goal is to gain hands-on experience with production-grade
+MLOps on a managed cloud platform — not to run the system permanently. It runs **in parallel** with the
+existing DagsHub + GitHub Actions setup; the live hourly system is never touched. Everything lives in a
+single Resource Group so the whole stack can be torn down with one command after capturing evidence,
+keeping cost under ~$10 of the free credit.
 
 ---
 
@@ -27,7 +27,7 @@ under ~$10 of the free credit.
 
 | Goal | How it is met |
 |---|---|
-| Demonstrate hands-on Azure ML skill | Workspace, training jobs, model registry, online endpoint, CI/CD |
+| Learn Azure ML hands-on | Workspace, training jobs, model registry, online endpoint, CI/CD |
 | Keep the live system intact | Azure added as a **parallel** destination, toggled by environment variables |
 | Minimise cost | Single Resource Group, compute that scales to zero, endpoint deleted after use |
 
