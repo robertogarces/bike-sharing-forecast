@@ -1,3 +1,5 @@
+# Serving environment dependencies for the online endpoint. Pins must match the training env:
+# scikit-learn to unpickle the model, numpy<2 for mlflow 2.15, conda-forge only. See docs/azure.md.
 name: bike-sharing-endpoint
 channels:
   - conda-forge

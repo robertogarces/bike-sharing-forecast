@@ -1,3 +1,4 @@
+# Managed Online Endpoint definition — the REST API front door; deployments attach to it.
 $schema: https://azuremlschemas.azureedge.net/latest/managedOnlineEndpoint.schema.json
 name: bike-sharing-ep
 auth_mode: key

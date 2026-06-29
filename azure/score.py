@@ -1,3 +1,16 @@
+"""
+Scoring script for the Azure ML Managed Online Endpoint.
+
+Azure ML calls ``init()`` once at container startup (after environment variables
+are injected) to load both LightGBM models from the Model Registry, then calls
+``run(raw_data)`` per request. ``run()`` mirrors the production ``predict.py``
+logic: it back-transforms each model's log prediction with ``expm1`` and returns
+the registered/casual split plus the total.
+
+Models are loaded by explicit version (``MODEL_VERSION``) rather than by alias,
+because Azure ML's MLflow API does not implement model aliases. See docs/azure.md.
+"""
+
 import json
 import logging
 import os

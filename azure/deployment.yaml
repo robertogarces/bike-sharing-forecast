@@ -1,3 +1,5 @@
+# Deployment attached to the endpoint: scoring script, serving env, SKU, and env vars.
+# MLFLOW_TRACKING_URI and MODEL_VERSION are injected into the container here.
 $schema: https://azuremlschemas.azureedge.net/latest/managedOnlineDeployment.schema.json
 name: blue
 endpoint_name: bike-sharing-ep

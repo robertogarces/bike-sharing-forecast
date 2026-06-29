@@ -1,3 +1,4 @@
+# Azure ML Command Job — runs the full training pipeline (dvc pull -> train -> evaluate) on cpu-cluster.
 $schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
 
 experiment_name: bike-sharing-forecast

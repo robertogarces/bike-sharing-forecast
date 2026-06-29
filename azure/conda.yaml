@@ -1,3 +1,4 @@
+# Training environment dependencies (used by the Azure ML training job via environment.yaml).
 name: bike-sharing-azure
 channels:
   - conda-forge

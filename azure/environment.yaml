@@ -1,3 +1,4 @@
+# Azure ML Environment for the training job — built from conda.yaml on an Ubuntu 22.04 base image.
 name: bike-sharing-env
 version: "7"
 conda_file: conda.yaml
