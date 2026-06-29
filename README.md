@@ -90,7 +90,7 @@ See [`docs/architecture.md`](docs/architecture.md) for the full design.
 
 ## Azure Deployment
 
-This project includes a cloud deployment layer using Azure ML, running **in parallel** with the existing DagsHub + GitHub Actions setup — the live hourly system remains untouched. The purpose is demonstrating production-grade MLOps on a managed platform: model registry, REST inference API, and CI/CD with federated authentication.
+This project includes a cloud deployment layer using Azure ML, running **in parallel** with the existing DagsHub + GitHub Actions setup — the live hourly system remains untouched. The purpose is to gain hands-on experience with production-grade MLOps on a managed platform: model registry, REST inference API, and CI/CD with federated authentication.
 
 > 📖 For the full walkthrough — training on Azure compute, design decisions, cost control, and lessons learned — see [`docs/azure.md`](docs/azure.md).
 
