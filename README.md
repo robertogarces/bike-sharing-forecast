@@ -10,6 +10,7 @@
 ![Streamlit](https://img.shields.io/badge/Dashboard-Streamlit-FF4B4B)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED)
 ![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF)
+![Azure ML](https://img.shields.io/badge/Cloud-Azure_ML-0078D4)
 
 ---
 
@@ -77,6 +78,94 @@ evaluate
 - **Weekly:** check for data drift; if drift exceeds a threshold (and enough new data exists), retrain and promote the new model only if it beats the current production model.
 
 See [`docs/architecture.md`](docs/architecture.md) for the full design.
+
+---
+
+## Azure Deployment
+
+This project includes a cloud deployment layer using Azure ML, running **in parallel** with the existing DagsHub + GitHub Actions setup — the live hourly system remains untouched. The purpose is demonstrating production-grade MLOps on a managed platform: model registry, REST inference API, and CI/CD with federated authentication.
+
+### What was deployed
+
+| Component | Azure Service |
+|---|---|
+| Experiment tracking | Azure ML Workspace (built-in MLflow server) |
+| Model registry | Azure ML Model Registry |
+| REST inference API | Managed Online Endpoint |
+| CI/CD | GitHub Actions with OIDC federated auth |
+
+### Architecture
+
+```
+GitHub Actions (workflow_dispatch)
+        │
+        │  OIDC token — no long-lived secrets stored in GitHub
+        ▼
+Azure Entra ID ──► validates token ──► grants scoped access
+        │
+        ▼
+Azure ML Workspace (mlw-bike-sharing, australiaeast)
+├── Model Registry
+│   ├── bike-sharing-forecast-registered  v6
+│   └── bike-sharing-forecast-casual      v6
+└── Managed Online Endpoint (bike-sharing-ep)
+    └── Deployment: blue  (Standard_DS1_v2)
+        └── score.py
+            ├── init() — loads both models from registry at startup
+            └── run()  — returns {registered, casual, total}
+```
+
+### Endpoint
+
+The scoring endpoint loads both LightGBM models at startup and returns a combined prediction:
+
+```bash
+az ml online-endpoint invoke \
+  -n bike-sharing-ep \
+  --request-file azure/sample_request.json \
+  -g rg-bike-sharing -w mlw-bike-sharing
+```
+
+```json
+{"registered": 190.0, "casual": 12.3, "total": 202.3}
+```
+
+![Endpoint invoke](docs/assets/azure-endpoint-invoke.png)
+
+![Endpoint in Azure ML Studio](docs/assets/ml-azure-endpoint.png)
+
+![Endpoint test tab](docs/assets/ml-azure-endpoint-test.png)
+
+### CI/CD with OIDC federated auth
+
+The deploy workflow (`workflow_dispatch`) authenticates to Azure using OIDC federated credentials — no client secrets stored in GitHub. The federated credential is locked to this specific repo and branch; tokens from any other source are rejected by Azure.
+
+```yaml
+permissions:
+  id-token: write   # enables OIDC token request
+  contents: read
+```
+
+![GitHub Actions deploy workflow](docs/assets/github-actions-azure-endpoint-deploy.png)
+
+### Key files
+
+| File | Description |
+|---|---|
+| `azure/score.py` | Scoring script: loads both models, returns registered/casual/total |
+| `azure/conda_endpoint.yaml` | Serving environment dependencies |
+| `azure/endpoint.yaml` | Endpoint definition |
+| `azure/deployment.yaml` | Deployment config (SKU, env vars, model version) |
+| `azure/sample_request.json` | Example request payload |
+| `.github/workflows/deploy-azure.yml` | Manual deploy workflow with OIDC |
+
+### Cost and teardown
+
+The Managed Online Endpoint is the only resource with significant cost (~$0.10–0.20/hr for `Standard_DS1_v2`). All other resources — workspace, model registry, storage — are negligible at this scale. The endpoint is deleted after use. To tear down the full Azure stack:
+
+```bash
+az group delete -n rg-bike-sharing --yes
+```
 
 ---
 
@@ -198,7 +287,8 @@ bike-sharing/
 │   ├── models/             # Trained model files
 │   ├── evaluation/         # Metrics, SHAP, residual plots
 │   └── drift/              # Drift reports
-├── .github/workflows/      # CI, hourly, weekly automation
+├── azure/                  # Azure ML deployment (scoring script, environment, endpoint/deployment specs)
+├── .github/workflows/      # CI, hourly, weekly, and Azure deploy automation
 ├── docs/                   # Detailed documentation
 ├── dvc.yaml                # Pipeline definition
 ├── Dockerfile
@@ -223,6 +313,7 @@ bike-sharing/
 | Automation | GitHub Actions |
 | Containerization | Docker, Docker Compose |
 | Testing | Pytest |
+| Cloud | Azure ML (Workspace, Model Registry, Managed Online Endpoint) |
 
 ---
 
