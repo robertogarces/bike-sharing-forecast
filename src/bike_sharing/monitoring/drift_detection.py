@@ -164,24 +164,6 @@ def main(cfg: DictConfig) -> None:
 
     logger.info(f"Reference: {len(reference):,} rows | Current: {len(current):,} rows")
 
-    # ── Check minimum data requirement ────────────────────────────────────────
-    if len(current) < cfg.monitoring.min_hours:
-        logger.warning(
-            f"Not enough current data for drift detection "
-            f"({len(current)} rows < {cfg.monitoring.min_hours} minimum). "
-            f"Skipping."
-        )
-        drift_dir.mkdir(parents=True, exist_ok=True)
-        with open(drift_dir / "drift_detected.json", "w") as f:
-            json.dump({
-                "timestamp":      datetime.now().isoformat(),
-                "drift_detected": False,
-                "drift_share":    0.0,
-                "threshold":      drift_threshold,
-                "reason":         f"Not enough data ({len(current)} rows < {cfg.monitoring.min_hours} minimum)",
-            }, f, indent=2)
-        return
-
     # ── Run drift report ──────────────────────────────────────────────────────
     logger.info("Running drift detection")
     summary = run_drift_report(
