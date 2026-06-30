@@ -1,11 +1,13 @@
 import logging
 import subprocess
 from pathlib import Path
+from datetime import datetime
 
 import hydra
 from omegaconf import DictConfig
 import json
 import mlflow
+import pandas as pd
 from mlflow.tracking import MlflowClient
 from bike_sharing.utils.mlflow_utils import setup_mlflow
 
@@ -53,6 +55,64 @@ def should_retrain(drift_flag_path: Path, force: bool) -> bool:
             f"— skipping retraining"
         )
         return False
+
+
+def count_new_hours(hour_past_path: Path, marker_path: Path) -> int | None:
+    """
+    Count how many hours of data have accumulated since the last retrain.
+
+    Compares the records in hour_past.csv against the data cutoff recorded in
+    the last-retrain marker. This answers "is there enough fresh data to make
+    retraining worthwhile?" — distinct from drift detection.
+
+    Parameters
+    ----------
+    hour_past_path : Path
+        Path to hour_past.csv (the full accumulated history).
+    marker_path : Path
+        Path to the last-retrain marker JSON.
+
+    Returns
+    -------
+    int | None
+        Number of records newer than the marker's data cutoff, or None if no
+        marker exists yet (first retrain — bootstrap, retrain should proceed).
+    """
+    if not marker_path.exists():
+        return None
+
+    with open(marker_path) as f:
+        marker = json.load(f)
+    cutoff = pd.to_datetime(marker["data_cutoff"])
+
+    df = pd.read_csv(hour_past_path)
+    df["dteday"]   = pd.to_datetime(df["dteday"])
+    df["datetime"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
+
+    return int((df["datetime"] > cutoff).sum())
+
+
+def write_retrain_marker(hour_past_path: Path, marker_path: Path) -> None:
+    """
+    Record the data cutoff of the current retrain so future runs can measure
+    how much new data has accumulated since.
+
+    The cutoff is the latest datetime present in hour_past.csv at retrain time.
+    Written regardless of whether the new model was promoted — the compute was
+    already spent, so the boundary should advance to avoid re-running next week.
+    """
+    df = pd.read_csv(hour_past_path)
+    df["dteday"]   = pd.to_datetime(df["dteday"])
+    df["datetime"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
+    data_cutoff = df["datetime"].max()
+
+    marker_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(marker_path, "w") as f:
+        json.dump({
+            "data_cutoff": data_cutoff.isoformat(),
+            "written_at":  datetime.now().isoformat(),
+        }, f, indent=2)
+    logger.info(f"Retrain marker updated — data cutoff: {data_cutoff}")
 
 
 def promote_if_better(
@@ -125,6 +185,8 @@ def promote_if_better(
 def main(cfg: DictConfig) -> None:
     artifacts_dir   = Path(cfg.paths.artifacts_dir)
     drift_flag_path = artifacts_dir / "drift" / "drift_detected.json"
+    marker_path     = Path(cfg.paths.retrain_marker)
+    hour_past_path  = Path(cfg.paths.raw_dir) / cfg.paths.input_file
     force           = cfg.training.force_retrain
 
     # ── Configure MLflow ──────────────────────────────────────────────────────
@@ -133,6 +195,26 @@ def main(cfg: DictConfig) -> None:
     # ── Check if retraining is needed ─────────────────────────────────────────
     if not should_retrain(drift_flag_path, force):
         return
+
+    # ── Check enough new data has accumulated since the last retrain ──────────
+    # Even with drift, skip if too little fresh data arrived — retraining the
+    # full pipeline for a handful of new hours is not worth the cost/risk.
+    # force=True bypasses this guard, same as the drift check.
+    if not force:
+        new_hours = count_new_hours(hour_past_path, marker_path)
+        if new_hours is None:
+            logger.info("No retrain marker found — bootstrapping first retrain")
+        elif new_hours < cfg.training.min_new_hours:
+            logger.warning(
+                f"Only {new_hours}h of new data since last retrain "
+                f"(< {cfg.training.min_new_hours} required) — skipping retrain"
+            )
+            return
+        else:
+            logger.info(
+                f"{new_hours}h of new data since last retrain "
+                f"(≥ {cfg.training.min_new_hours}) — proceeding"
+            )
 
     # ── Retrain pipeline ──────────────────────────────────────────────────────
     logger.info("Starting retraining pipeline")
@@ -166,6 +248,9 @@ def main(cfg: DictConfig) -> None:
         logger.warning("One or both models not promoted — previous Production model retained")
 
     run_command(["dvc", "freeze", "build_features"])
+
+    # Advance the data boundary so the next run measures new data from here on.
+    write_retrain_marker(hour_past_path, marker_path)
 
     logger.info("Retraining complete")
 

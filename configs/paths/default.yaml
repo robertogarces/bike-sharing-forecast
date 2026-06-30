@@ -7,4 +7,5 @@ evaluation_dir: artifacts/evaluation
 predictions_dir: data/predictions
 predictions_path: data/predictions/predictions.csv
 simulation_state: data/simulation_state.json
+retrain_marker: data/last_retrain.json
 input_file: hour_past.csv

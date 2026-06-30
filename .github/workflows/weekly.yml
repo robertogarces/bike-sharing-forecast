@@ -44,6 +44,12 @@ jobs:
       - name: Retrain if drift detected
         run: python src/bike_sharing/models/retrain.py
 
+      - name: Register retrain marker with DVC (if a retrain occurred)
+        run: |
+          if [ -f data/last_retrain.json ]; then
+            dvc add data/last_retrain.json
+          fi
+
       - name: Push updated models to DagsHub
         run: dvc push
 
@@ -52,5 +58,6 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add dvc.lock
+          [ -f data/last_retrain.json.dvc ] && git add data/last_retrain.json.dvc
           git diff --staged --quiet || git commit -m "chore: weekly drift detection and retrain [skip ci]"
           git push

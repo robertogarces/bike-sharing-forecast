@@ -1,1 +1,2 @@
 force_retrain: false
+min_new_hours: 720    # min new hours of data since last retrain to allow retraining (~30 days)
