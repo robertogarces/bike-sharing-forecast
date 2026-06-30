@@ -131,7 +131,7 @@ Loads the trained models, runs predictions on the validation set, computes metri
 Three workflows automate the production layer:
 
 ### `ci.yml` — Continuous Integration
-Runs on every push to `main`. Executes the full test suite (41 unit tests) on a clean Ubuntu environment. Catches regressions before they reach production.
+Runs on every push to `main`. Executes the full test suite (45 unit tests) on a clean Ubuntu environment. Catches regressions before they reach production.
 
 ### `hourly.yml` — Hourly Prediction
 Runs every hour at minute 0 (`cron: "0 * * * *"`). Steps:
