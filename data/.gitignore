@@ -4,3 +4,4 @@
 /processed
 /predictions/predictions.csv
 /simulation_state.json
+/last_retrain.json
