@@ -129,7 +129,7 @@ def main(cfg: DictConfig) -> None:
     artifacts_dir    = Path(cfg.paths.artifacts_dir)
     best_params_path = Path(cfg.model.best_params_path)
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    Path(cfg.paths.models_dir).mkdir(parents=True, exist_ok=True)   # ← AÑADIR
+    Path(cfg.paths.models_dir).mkdir(parents=True, exist_ok=True) 
 
     # ── Load data ─────────────────────────────────────────────────────────────
     logger.info("Loading processed data")
