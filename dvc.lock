@@ -37,8 +37,8 @@ stages:
       size: 234
     - path: data/raw/hour_past.csv
       hash: md5
-      md5: 1f72b4cbba0645c7b2f5b8fbc7794439
-      size: 1029023
+      md5: 3839c157fccec9351fe1d5cf59018781
+      size: 1066477
     - path: src/bike_sharing/features/build_features.py
       hash: md5
       md5: 7de8664504032eaf8797b3c86345bc4b
@@ -46,12 +46,12 @@ stages:
     outs:
     - path: data/processed/train.csv
       hash: md5
-      md5: a073a7b92ff389a98d0737777b38ddb2
-      size: 3017985
+      md5: 6fd2e59e83cfd3e1e75a2e945690e26e
+      size: 3124577
     - path: data/processed/val.csv
       hash: md5
-      md5: 754a00db3405215512a84bd65a51e95d
-      size: 772420
+      md5: 90ab94918c137be8b217f3cc6c9b38af
+      size: 802689
   train:
     cmd: python src/bike_sharing/models/train.py
     deps:
@@ -65,16 +65,16 @@ stages:
       size: 750
     - path: data/processed/train.csv
       hash: md5
-      md5: a073a7b92ff389a98d0737777b38ddb2
-      size: 3017985
+      md5: 6fd2e59e83cfd3e1e75a2e945690e26e
+      size: 3124577
     - path: data/processed/val.csv
       hash: md5
-      md5: 754a00db3405215512a84bd65a51e95d
-      size: 772420
+      md5: 90ab94918c137be8b217f3cc6c9b38af
+      size: 802689
     - path: src/bike_sharing/models/train.py
       hash: md5
-      md5: fa19ffc078ec3d9c46a1ca1c16cda213
-      size: 9846
+      md5: 860896e29049142a2c4ff1a92cdaf4d3
+      size: 10912
     params:
       configs/model/lgbm.yaml:
         n_trials: 50
@@ -83,60 +83,60 @@ stages:
     outs:
     - path: artifacts/models/lgbm_casual.txt
       hash: md5
-      md5: 9d4e42e2e68b3cb6279c83e0607b8117
-      size: 5778257
+      md5: d2ba48311cbb6003204b802b8dda396e
+      size: 5840513
     - path: artifacts/models/lgbm_registered.txt
       hash: md5
-      md5: fe6e7ea70e8177baf4075a32560b7ee7
-      size: 6071288
+      md5: 1e5fe1d61dfc3645b2cf880f9e960717
+      size: 6056649
   evaluate:
     cmd: python src/bike_sharing/models/evaluate.py
     deps:
     - path: artifacts/models/lgbm_casual.txt
       hash: md5
-      md5: 9d4e42e2e68b3cb6279c83e0607b8117
-      size: 5778257
+      md5: d2ba48311cbb6003204b802b8dda396e
+      size: 5840513
     - path: artifacts/models/lgbm_registered.txt
       hash: md5
-      md5: fe6e7ea70e8177baf4075a32560b7ee7
-      size: 6071288
+      md5: 1e5fe1d61dfc3645b2cf880f9e960717
+      size: 6056649
     - path: configs/config.yaml
       hash: md5
       md5: 45334c9cca3fb84a5fb1d96d3c00cba2
       size: 199
     - path: data/processed/val.csv
       hash: md5
-      md5: 754a00db3405215512a84bd65a51e95d
-      size: 772420
+      md5: 90ab94918c137be8b217f3cc6c9b38af
+      size: 802689
     - path: src/bike_sharing/models/evaluate.py
       hash: md5
-      md5: b7a6f4ec34d9d58965461ba41bf09aba
-      size: 7848
+      md5: 8652261c803af85e3f9dfd9e05110070
+      size: 7856
     outs:
     - path: artifacts/evaluation/actual_vs_predicted.png
       hash: md5
-      md5: d36a3e43a8e8bfb13e7c7fc4292e3f8b
-      size: 144963
+      md5: 05921b7a07c77f2583c0b76e2f3a92f8
+      size: 154932
     - path: artifacts/evaluation/demand_over_time.png
       hash: md5
-      md5: f2604998bc495647eeafc12a4e231dd8
-      size: 113031
+      md5: 39d01dac73a1736cc66177cd8b281faa
+      size: 118718
     - path: artifacts/evaluation/metrics.json
       hash: md5
-      md5: 482fab74f82cbb3ac7b4a625e5025ffc
-      size: 92
+      md5: 596d35752b5b79283cf12448dabd8a0d
+      size: 91
     - path: artifacts/evaluation/residuals.png
       hash: md5
-      md5: f85d3f6f5a11cfe9f427bf3eb59b11d8
-      size: 158599
+      md5: 35231a27e81c6dcfa0412224a85bc49a
+      size: 172844
     - path: artifacts/evaluation/shap_casual.png
       hash: md5
-      md5: 2397cd7549be47876f2e8add72102f31
-      size: 167641
+      md5: ae906fc69fdf0b3dbe4b85031c1204b5
+      size: 178871
     - path: artifacts/evaluation/shap_registered.png
       hash: md5
-      md5: 032a3a780d54cb47ecd7c43362725235
-      size: 158268
+      md5: 302da780e6419818b99d056487742426
+      size: 171740
   shift_dates:
     cmd: python src/bike_sharing/data/shift_dates.py
     deps:

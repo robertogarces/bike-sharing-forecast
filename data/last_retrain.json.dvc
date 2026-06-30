@@ -1,0 +1,5 @@
+outs:
+- md5: 245455e896d543aea4bafef2a9db630f
+  size: 88
+  hash: md5
+  path: last_retrain.json
