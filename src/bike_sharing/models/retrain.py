@@ -7,8 +7,11 @@ import hydra
 from omegaconf import DictConfig
 import json
 import mlflow
+import mlflow.lightgbm
+import numpy as np
 import pandas as pd
 from mlflow.tracking import MlflowClient
+from bike_sharing.models.train import compute_metrics, FEATURES
 from bike_sharing.utils.mlflow_utils import setup_mlflow
 
 logger = logging.getLogger(__name__)
@@ -115,71 +118,113 @@ def write_retrain_marker(hour_past_path: Path, marker_path: Path) -> None:
     logger.info(f"Retrain marker updated — data cutoff: {data_cutoff}")
 
 
-def promote_if_better(
+def evaluate_production_pair(project: str, val_df: pd.DataFrame) -> float | None:
+    """
+    Evaluate the current production model pair (registered + casual) on the
+    *current* validation set and return the combined RMSE.
+
+    This is the champion side of the champion/challenger comparison. Both the
+    new (challenger) and the production (champion) models are scored on the
+    SAME val.csv, making the RMSE comparison apples-to-apples — unlike reading
+    the champion's metric stored from its own (older) validation period, which
+    could differ purely because the holdout differs.
+
+    Parameters
+    ----------
+    project : str
+        Registered-model name prefix (models are '{project}-registered' and
+        '{project}-casual').
+    val_df : pd.DataFrame
+        Current validation set (must contain FEATURES and the 'cnt' column).
+
+    Returns
+    -------
+    float | None
+        Combined RMSE of the production pair on val_df, or None if no
+        production alias exists yet (bootstrap — nothing to compare against).
+    """
+    try:
+        model_registered = mlflow.lightgbm.load_model(f"models:/{project}-registered@production")
+        model_casual     = mlflow.lightgbm.load_model(f"models:/{project}-casual@production")
+    except mlflow.exceptions.MlflowException:
+        logger.info("No production model pair found — bootstrap (nothing to compare against)")
+        return None
+
+    X_val     = val_df[FEATURES]
+    y_val_cnt = val_df["cnt"].values
+
+    pred_registered = np.expm1(model_registered.predict(X_val))
+    pred_casual     = np.expm1(model_casual.predict(X_val))
+    pred_combined   = np.clip(pred_registered + pred_casual, 0, None)
+
+    return float(compute_metrics(y_val_cnt, pred_combined)["rmse"])
+
+
+def promote_models_if_better(
     client: MlflowClient,
-    model_name: str,
-    new_metrics: dict,
-    metric_key: str = "rmse",
+    project: str,
+    new_rmse: float,
+    prod_rmse: float | None,
 ) -> bool:
     """
-    Promote the latest model version to Production alias if it improves
-    on the current Production model.
+    Atomically promote the new registered+casual model pair to the production
+    alias if it beats the current production pair on the same validation set.
 
-    Uses MLflow aliases instead of deprecated stages API.
-    Lower metric value is considered better.
+    Both models are promoted together (both-or-neither). RMSE is a combined
+    metric over the pair (predictions are summed before scoring), so there is
+    no measured RMSE for a mixed pair (e.g. new registered + old casual) —
+    only for (new+new) and (prod+prod). Promoting one model without the other
+    would mean acting on an untested combination. Lower RMSE is better.
 
     Parameters
     ----------
     client : MlflowClient
         MLflow tracking client.
-    model_name : str
-        Registered model name in MLflow registry.
-    new_metrics : dict
-        Metrics from the newly trained model.
-    metric_key : str
-        Metric to compare (default: 'rmse').
+    project : str
+        Registered-model name prefix.
+    new_rmse : float
+        Combined RMSE of the newly trained pair on the current val set.
+    prod_rmse : float | None
+        Combined RMSE of the current production pair on the SAME val set, or
+        None if there is no production model yet (bootstrap).
 
     Returns
     -------
     bool
-        True if the new model was promoted to Production.
+        True if the new pair was promoted to production.
     """
-    # Get all versions and find the latest
-    all_versions = client.search_model_versions(f"name='{model_name}'")
-    new_version  = max(all_versions, key=lambda v: int(v.version))
+    model_names  = [f"{project}-registered", f"{project}-casual"]
+    new_versions = {
+        name: max(client.search_model_versions(f"name='{name}'"), key=lambda v: int(v.version))
+        for name in model_names
+    }
 
-    # Check if a production alias exists
-    try:
-        prod_version = client.get_model_version_by_alias(model_name, "production")
-        prod_run     = client.get_run(prod_version.run_id)
-        prod_metric  = prod_run.data.metrics[metric_key]
-        new_metric   = new_metrics[metric_key]
-
-        if new_metric < prod_metric:
-            logger.info(
-                f"{model_name} — new model ({metric_key}: {new_metric:.4f}) "
-                f"beats production ({metric_key}: {prod_metric:.4f}) → promoting"
-            )
-            client.set_registered_model_alias(model_name, "production", new_version.version)
-            client.set_registered_model_alias(model_name, "archived",   prod_version.version)
-            return True
-        else:
-            logger.warning(
-                f"{model_name} — new model ({metric_key}: {new_metric:.4f}) "
-                f"does not beat production ({metric_key}: {prod_metric:.4f}) → keeping current"
-            )
-            client.set_registered_model_alias(model_name, "archived", new_version.version)
-            return False
-
-    except mlflow.exceptions.MlflowException:
-        # No production alias yet — promote directly
-        logger.info(
-            f"{model_name} — no production model found → "
-            f"promoting version {new_version.version}"
-        )
-        client.set_registered_model_alias(model_name, "production", new_version.version)
+    # Bootstrap: no production pair yet → promote directly.
+    if prod_rmse is None:
+        for name, version in new_versions.items():
+            logger.info(f"{name} — no production model found → promoting version {version.version}")
+            client.set_registered_model_alias(name, "production", version.version)
         return True
-        
+
+    if new_rmse < prod_rmse:
+        logger.info(
+            f"New model pair (rmse: {new_rmse:.4f}) beats production "
+            f"(rmse: {prod_rmse:.4f}) on the current val set → promoting both"
+        )
+        for name, version in new_versions.items():
+            prod_version = client.get_model_version_by_alias(name, "production")
+            client.set_registered_model_alias(name, "production", version.version)
+            client.set_registered_model_alias(name, "archived",   prod_version.version)
+        return True
+
+    logger.warning(
+        f"New model pair (rmse: {new_rmse:.4f}) does not beat production "
+        f"(rmse: {prod_rmse:.4f}) on the current val set → keeping current"
+    )
+    for name, version in new_versions.items():
+        client.set_registered_model_alias(name, "archived", version.version)
+    return False
+
 
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
@@ -223,29 +268,36 @@ def main(cfg: DictConfig) -> None:
     run_command(["dvc", "repro"])
 
     # ── Promote if better ─────────────────────────────────────────────────────
-
+    # Champion/challenger comparison on the SAME (current) val set: the new
+    # pair's RMSE comes from evaluate.py (metrics.json), and the production
+    # pair is re-scored on that same val.csv here — apples-to-apples.
     client = MlflowClient()
 
-    # Load metrics from latest evaluation
+    # New (challenger) pair's RMSE — already computed by evaluate.py on the
+    # current val set during the dvc repro above.
     metrics_path = Path(cfg.paths.artifacts_dir) / "evaluation" / "metrics.json"
     with open(metrics_path) as f:
         new_metrics = json.load(f)
+    new_rmse = new_metrics["rmse"]
 
-    promoted_registered = promote_if_better(
-        client,
-        model_name=f"{cfg.project}-registered",
-        new_metrics=new_metrics,
-    )
-    promoted_casual = promote_if_better(
-        client,
-        model_name=f"{cfg.project}-casual",
-        new_metrics=new_metrics,
-    )
+    # Production (champion) pair, re-scored on the current val set.
+    val_df    = pd.read_csv(Path(cfg.paths.processed_dir) / "val.csv")
+    prod_rmse = evaluate_production_pair(cfg.project, val_df)
 
-    if promoted_registered and promoted_casual:
-        logger.info("Both models promoted to Production")
+    if prod_rmse is None:
+        logger.info(f"Bootstrap promotion — new pair rmse: {new_rmse:.4f} (no production baseline)")
     else:
-        logger.warning("One or both models not promoted — previous Production model retained")
+        logger.info(
+            f"Champion/challenger on current val — "
+            f"new: {new_rmse:.4f} | production: {prod_rmse:.4f}"
+        )
+
+    promoted = promote_models_if_better(client, cfg.project, new_rmse, prod_rmse)
+
+    if promoted:
+        logger.info("New model pair promoted to Production")
+    else:
+        logger.warning("New model pair not promoted — previous Production pair retained")
 
     run_command(["dvc", "freeze", "build_features"])
 
