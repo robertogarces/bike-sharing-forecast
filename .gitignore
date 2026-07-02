@@ -16,8 +16,19 @@ data/raw/day.csv
 data/raw/hour_shifted.csv
 data/processed/
 
-# Artifacts (tracked by DVC, not Git)
-artifacts/
+# Artifacts (tracked by DVC, not Git) — except small diffable JSON summaries
+artifacts/*
+!artifacts/evaluation/
+artifacts/evaluation/*
+!artifacts/evaluation/metrics.json
+
+!artifacts/drift/
+artifacts/drift/*
+!artifacts/drift/drift_detected.json
+
+!artifacts/monitoring/
+artifacts/monitoring/*
+!artifacts/monitoring/performance.json
 
 # Jupyter
 .ipynb_checkpoints/
