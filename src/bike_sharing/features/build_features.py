@@ -142,13 +142,13 @@ def build_target(df: pd.DataFrame, target: str) -> pd.DataFrame:
 
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
-    raw_dir       = Path(cfg.dataset.raw_dir)
-    processed_dir = Path(cfg.dataset.processed_dir)
+    raw_dir       = Path(cfg.paths.raw_dir)
+    processed_dir = Path(cfg.paths.processed_dir)
     processed_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Load ──────────────────────────────────────────────────────────────────
     logger.info("Loading raw data")
-    df = pd.read_csv(raw_dir / cfg.dataset.input_file)
+    df = pd.read_csv(raw_dir / cfg.paths.input_file)
     df["dteday"]   = pd.to_datetime(df["dteday"])
     df["datetime"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
 

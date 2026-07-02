@@ -102,7 +102,7 @@ def plot_demand_over_time(y_true: np.ndarray, y_pred: np.ndarray, dates: pd.Seri
 
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
-    processed_dir = Path(cfg.dataset.processed_dir)
+    processed_dir = Path(cfg.paths.processed_dir)
     Path(cfg.paths.evaluation_dir).mkdir(parents=True, exist_ok=True)
 
     # ── Load data ─────────────────────────────────────────────────────────────
