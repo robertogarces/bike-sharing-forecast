@@ -11,7 +11,7 @@ import numpy as np
 import optuna
 import pandas as pd
 from omegaconf import DictConfig
-from sklearn.metrics import mean_squared_error, mean_squared_log_error, r2_score
+from sklearn.metrics import mean_squared_error, mean_squared_log_error, r2_score, mean_absolute_error
 from bike_sharing.utils.mlflow_utils import setup_mlflow
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ FEATURES = [
 
 def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     """
-    Compute RMSE, RMSLE and R² on the original cnt scale.
+    Compute RMSE, RMSLE, R² and MAE on the original cnt scale.
 
     Predictions must be on the original scale (not log) before calling.
     y_pred is clipped at 0 to avoid negative values breaking RMSLE.
@@ -42,6 +42,7 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
         "rmse":  np.sqrt(mean_squared_error(y_true, y_pred)),
         "rmsle": np.sqrt(mean_squared_log_error(y_true, np.clip(y_pred, 0, None))),
         "r2":    r2_score(y_true, y_pred),
+        "mae":   mean_absolute_error(y_true, y_pred),
     }
 
 
