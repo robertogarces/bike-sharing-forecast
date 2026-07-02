@@ -45,6 +45,9 @@ jobs:
       - name: Pull data and models from DagsHub
         run: dvc pull
 
+      - name: Run performance monitoring
+        run: python src/bike_sharing/monitoring/performance_monitoring.py
+
       - name: Run drift detection
         run: python src/bike_sharing/monitoring/drift_detection.py
 
@@ -66,5 +69,8 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add dvc.lock
           [ -f data/last_retrain.json.dvc ] && git add data/last_retrain.json.dvc
+          [ -f artifacts/evaluation/metrics.json ] && git add artifacts/evaluation/metrics.json
+          [ -f artifacts/drift/drift_detected.json ] && git add artifacts/drift/drift_detected.json
+          [ -f artifacts/monitoring/performance_history.csv ] && git add artifacts/monitoring/performance_history.csv
           git diff --staged --quiet || git commit -m "chore: weekly drift detection and retrain [skip ci]"
           git push
