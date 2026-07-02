@@ -1,0 +1,8 @@
+{
+  "timestamp": "2026-07-01T00:28:14.735449",
+  "n_features": 20,
+  "n_drifted": 16,
+  "drift_share": 0.8,
+  "drift_detected": true,
+  "threshold": 0.5
+}
