@@ -5,6 +5,13 @@ on:
     - cron: "0 * * * *"  # runs every hour at minute 0
   workflow_dispatch:       # allows manual trigger from GitHub UI
 
+# Serialize against the weekly workflow: both push data/DVC state to main and
+# would collide every Monday 00:00 UTC. Shared group name; wait rather than
+# cancel so neither run's push is lost.
+concurrency:
+  group: main-state
+  cancel-in-progress: false
+
 jobs:
   predict:
     runs-on: ubuntu-latest
