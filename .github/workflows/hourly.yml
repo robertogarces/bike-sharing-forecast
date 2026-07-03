@@ -12,6 +12,14 @@ concurrency:
   group: main-state
   cancel-in-progress: false
 
+# Explicit permissions block: contents:write is needed for the existing git
+# push step, issues:write is new (for hourly_alert.py's GitHub issue alerts).
+# Declaring this block replaces the default permissions entirely, so both
+# must be listed even though only issues:write is new.
+permissions:
+  contents: write
+  issues: write
+
 jobs:
   predict:
     runs-on: ubuntu-latest
@@ -53,6 +61,14 @@ jobs:
 
       - name: Run output drift detection
         run: python src/bike_sharing/monitoring/output_drift_detection.py
+
+      - name: Run hourly alert
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+        run: python src/bike_sharing/monitoring/hourly_alert.py
 
       - name: Register updated files with DVC
         run: |
