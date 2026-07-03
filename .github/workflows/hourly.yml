@@ -51,6 +51,9 @@ jobs:
       - name: Predict next hour
         run: python src/bike_sharing/models/predict.py
 
+      - name: Run output drift detection
+        run: python src/bike_sharing/monitoring/output_drift_detection.py
+
       - name: Register updated files with DVC
         run: |
           dvc add data/raw/hour_past.csv \
@@ -66,5 +69,6 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/raw/hour_past.csv.dvc data/raw/hour_future.csv.dvc data/simulation_state.json.dvc data/predictions/predictions.csv.dvc dvc.lock
+          [ -f artifacts/monitoring/output_drift_history.csv ] && git add artifacts/monitoring/output_drift_history.csv
           git diff --staged --quiet || git commit -m "chore: sync local state after successful hourly workflow [skip ci]"
           git push

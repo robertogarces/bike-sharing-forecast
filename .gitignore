@@ -29,6 +29,7 @@ artifacts/drift/*
 !artifacts/monitoring/
 artifacts/monitoring/*
 !artifacts/monitoring/performance_history.csv
+!artifacts/monitoring/output_drift_history.csv
 
 # Jupyter
 .ipynb_checkpoints/
