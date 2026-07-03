@@ -9,6 +9,7 @@ from omegaconf import DictConfig
 
 from bike_sharing.models.train import compute_metrics
 from bike_sharing.utils.mlflow_utils import setup_mlflow
+from bike_sharing.utils.monitoring_utils import append_monitoring_record
 
 logger = logging.getLogger(__name__)
 
@@ -77,24 +78,6 @@ def compute_rolling_performance(joined: pd.DataFrame, n_hours: int) -> dict:
     }
 
 
-def append_performance_record(summary: dict, history_path: Path) -> None:
-    """
-    Append a performance summary record to performance_history.csv.
-
-    Unlike append_prediction (predict.py) — one record per hour, deduped by
-    timestamp — each monitoring run is its own observation: even a rerun in
-    the same week is a legitimate, distinct measurement. Records are always
-    appended, never skipped.
-    """
-    df_new = pd.DataFrame([summary])
-
-    if history_path.exists():
-        df_new.to_csv(history_path, mode="a", header=False, index=False)
-    else:
-        history_path.parent.mkdir(parents=True, exist_ok=True)
-        df_new.to_csv(history_path, index=False)
-
-
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     raw_dir = Path(cfg.paths.raw_dir)
@@ -124,7 +107,7 @@ def main(cfg: DictConfig) -> None:
     )
 
     # ── Persist ───────────────────────────────────────────────────────────────
-    append_performance_record(summary, history_path)
+    append_monitoring_record(summary, history_path)
     logger.info(f"Performance record appended to {history_path}")
 
     # ── Log to MLflow ─────────────────────────────────────────────────────────

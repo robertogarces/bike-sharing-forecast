@@ -1,13 +1,9 @@
-import tempfile
-from pathlib import Path
-
 import pandas as pd
 import pytest
 
 from bike_sharing.monitoring.performance_monitoring import (
     join_predictions_with_actuals,
     compute_rolling_performance,
-    append_performance_record,
 )
 
 
@@ -103,53 +99,3 @@ def test_compute_rolling_performance_windows_to_most_recent_n_hours():
     # Window excludes the first (huge-error) row → error should be exactly 0.
     assert summary["rmse"] == pytest.approx(0.0)
     assert summary["n_resolved"] == 4
-
-
-# ── append_performance_record ───────────────────────────────────────────────
-
-
-def test_append_performance_record_creates_file_with_header():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        history_path = Path(tmpdir) / "performance_history.csv"
-        summary = {
-            "timestamp": "2026-01-01T00:00:00",
-            "n_hours": 168,
-            "n_resolved": 10,
-            "rmse": 50.0,
-            "rmsle": 0.2,
-            "r2": 0.9,
-            "mae": 40.0,
-        }
-
-        append_performance_record(summary, history_path)
-
-        assert history_path.exists()
-        df = pd.read_csv(history_path)
-        assert len(df) == 1
-        assert df.iloc[0]["rmse"] == 50.0
-
-
-def test_append_performance_record_always_appends_never_dedupes():
-    """
-    Unlike append_prediction (predictions.csv), repeated calls with the same
-    summary must each add a new row — every monitoring run is its own
-    observation, even if identical to the last.
-    """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        history_path = Path(tmpdir) / "performance_history.csv"
-        summary = {
-            "timestamp": "2026-01-01T00:00:00",
-            "n_hours": 168,
-            "n_resolved": 10,
-            "rmse": 50.0,
-            "rmsle": 0.2,
-            "r2": 0.9,
-            "mae": 40.0,
-        }
-
-        append_performance_record(summary, history_path)
-        append_performance_record(summary, history_path)
-        append_performance_record(summary, history_path)
-
-        df = pd.read_csv(history_path)
-        assert len(df) == 3
