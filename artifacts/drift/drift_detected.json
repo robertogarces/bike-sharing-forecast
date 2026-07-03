@@ -1,8 +1,105 @@
 {
-  "timestamp": "2026-07-01T00:28:14.735449",
-  "n_features": 20,
-  "n_drifted": 16,
-  "drift_share": 0.8,
+  "timestamp": "2026-07-03T11:16:43.391268",
+  "n_features": 19,
+  "n_drifted": 12,
+  "drift_share": 0.6316,
   "drift_detected": true,
-  "threshold": 0.5
+  "threshold": 0.5,
+  "drift_by_column": {
+    "cnt_lag_1": {
+      "stattest": "K-S p_value",
+      "score": 0.0,
+      "drifted": true
+    },
+    "cnt_lag_168": {
+      "stattest": "K-S p_value",
+      "score": 0.0,
+      "drifted": true
+    },
+    "cnt_lag_2": {
+      "stattest": "K-S p_value",
+      "score": 0.0,
+      "drifted": true
+    },
+    "cnt_lag_24": {
+      "stattest": "K-S p_value",
+      "score": 0.0,
+      "drifted": true
+    },
+    "cnt_lag_3": {
+      "stattest": "K-S p_value",
+      "score": 0.0,
+      "drifted": true
+    },
+    "cnt_lag_48": {
+      "stattest": "K-S p_value",
+      "score": 0.0,
+      "drifted": true
+    },
+    "cnt_lag_72": {
+      "stattest": "K-S p_value",
+      "score": 0.0,
+      "drifted": true
+    },
+    "cnt_lag_8": {
+      "stattest": "K-S p_value",
+      "score": 0.0,
+      "drifted": true
+    },
+    "cnt_rolling_mean_168": {
+      "stattest": "K-S p_value",
+      "score": 0.0,
+      "drifted": true
+    },
+    "cnt_rolling_mean_24": {
+      "stattest": "K-S p_value",
+      "score": 0.0,
+      "drifted": true
+    },
+    "hr_cos": {
+      "stattest": "K-S p_value",
+      "score": 0.289,
+      "drifted": false
+    },
+    "hr_sin": {
+      "stattest": "K-S p_value",
+      "score": 0.2799,
+      "drifted": false
+    },
+    "hr_weekend": {
+      "stattest": "K-S p_value",
+      "score": 0.1969,
+      "drifted": false
+    },
+    "hr_workday": {
+      "stattest": "K-S p_value",
+      "score": 0.1975,
+      "drifted": false
+    },
+    "hr_x_season": {
+      "stattest": "K-S p_value",
+      "score": 1.0,
+      "drifted": false
+    },
+    "hum": {
+      "stattest": "K-S p_value",
+      "score": 0.0023,
+      "drifted": true
+    },
+    "is_rush_hour": {
+      "stattest": "Z-test p_value",
+      "score": 0.4468,
+      "drifted": false
+    },
+    "temp": {
+      "stattest": "K-S p_value",
+      "score": 0.0,
+      "drifted": true
+    },
+    "weathersit": {
+      "stattest": "chi-square p_value",
+      "score": 0.0608,
+      "drifted": false
+    }
+  }
 }
