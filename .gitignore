@@ -30,6 +30,7 @@ artifacts/drift/*
 artifacts/monitoring/*
 !artifacts/monitoring/performance_history.csv
 !artifacts/monitoring/output_drift_history.csv
+!artifacts/monitoring/retrain_outcome.json
 
 # Jupyter
 .ipynb_checkpoints/

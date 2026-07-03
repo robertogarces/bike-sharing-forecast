@@ -12,6 +12,14 @@ concurrency:
   group: main-state
   cancel-in-progress: false
 
+# Explicit permissions block: contents:write is needed for the existing git
+# push step, issues:write is new (for weekly_report.py's GitHub issue alert).
+# Declaring this block replaces the default permissions entirely, so both
+# must be listed even though only issues:write is new.
+permissions:
+  contents: write
+  issues: write
+
 jobs:
   drift_and_retrain:
     runs-on: ubuntu-latest
@@ -54,6 +62,14 @@ jobs:
       - name: Retrain if drift detected
         run: python src/bike_sharing/models/retrain.py
 
+      - name: Generate weekly report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+        run: python src/bike_sharing/monitoring/weekly_report.py
+
       - name: Register retrain marker with DVC (if a retrain occurred)
         run: |
           if [ -f data/last_retrain.json ]; then
@@ -72,5 +88,6 @@ jobs:
           [ -f artifacts/evaluation/metrics.json ] && git add artifacts/evaluation/metrics.json
           [ -f artifacts/drift/drift_detected.json ] && git add artifacts/drift/drift_detected.json
           [ -f artifacts/monitoring/performance_history.csv ] && git add artifacts/monitoring/performance_history.csv
+          [ -f artifacts/monitoring/retrain_outcome.json ] && git add artifacts/monitoring/retrain_outcome.json
           git diff --staged --quiet || git commit -m "chore: weekly drift detection and retrain [skip ci]"
           git push
