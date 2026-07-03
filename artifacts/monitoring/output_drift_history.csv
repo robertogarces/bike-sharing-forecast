@@ -1,0 +1,2 @@
+timestamp,n_features,n_drifted,drift_share,drift_detected,threshold,drifted_pred_total,drifted_pred_registered,drifted_pred_casual
+2026-07-03T11:39:08.824385,3,0,0.0,False,0.5,False,False,False
