@@ -1,3 +1,5 @@
+import json
+
 import pytest
 import numpy as np
 import pandas as pd
@@ -7,6 +9,7 @@ from bike_sharing.models.predict import (
     build_next_hour_features,
     get_missing_hours,
     append_prediction,
+    get_fallback_prediction,
 )
 
 
@@ -308,6 +311,7 @@ def test_run_main_prediction_uses_next_hour_not_backfill(monkeypatch, tmp_path):
                 "input_file": "hour_past.csv",
                 "simulation_state": str(state_path),
                 "predictions_path": str(pred_path),
+                "artifacts_dir": str(tmp_path / "artifacts"),
             },
             "monitoring": {"max_backfill_hours": 48},
         }
@@ -334,3 +338,156 @@ def test_run_main_prediction_uses_next_hour_not_backfill(monkeypatch, tmp_path):
     main_row = out[out["ts"] == next_dt].iloc[0]
     assert main_row["hr"] == next_dt.hour
     assert round(main_row["pred_registered"]) == n
+
+
+# ── get_fallback_prediction ────────────────────────────────────────────────────
+
+
+def test_get_fallback_prediction_returns_lag168_row():
+    """
+    The fallback must reuse exactly the same seasonality the model's own
+    cnt_lag_168 feature relies on: the actual values from 168h before the
+    target hour.
+    """
+    dates, past = _make_past(200)
+    target_dt = dates[-1] + pd.Timedelta(hours=1)
+
+    fallback = get_fallback_prediction(past, target_dt)
+
+    lookback_dt = target_dt - pd.Timedelta(hours=168)
+    expected = past[
+        pd.to_datetime(past["dteday"]) + pd.to_timedelta(past["hr"], unit="h") == lookback_dt
+    ].iloc[0]
+
+    assert fallback == {
+        "pred_registered": float(expected["registered"]),
+        "pred_casual": float(expected["casual"]),
+        "pred_total": float(expected["cnt"]),
+    }
+
+
+def test_get_fallback_prediction_returns_none_when_insufficient_history():
+    """
+    Less than a week of simulated history — there is no 168h-ago row to fall
+    back to yet, so the caller must skip the hour instead of using stale/wrong
+    data.
+    """
+    dates, past = _make_past(50)
+    target_dt = dates[-1] + pd.Timedelta(hours=1)
+
+    assert get_fallback_prediction(past, target_dt) is None
+
+
+# ── run(): fallback when the hourly validation flag is invalid ────────────────
+
+
+def _run_cfg(raw_dir, pred_path, state_path, artifacts_dir):
+    from omegaconf import OmegaConf
+
+    return OmegaConf.create(
+        {
+            "project": "bike-sharing-forecast",
+            "paths": {
+                "raw_dir": str(raw_dir),
+                "input_file": "hour_past.csv",
+                "simulation_state": str(state_path),
+                "predictions_path": str(pred_path),
+                "artifacts_dir": str(artifacts_dir),
+            },
+            "monitoring": {"max_backfill_hours": 48},
+        }
+    )
+
+
+def _write_invalid_flag(artifacts_dir):
+    flag_path = artifacts_dir / "validation" / "hourly_validation.json"
+    flag_path.parent.mkdir(parents=True)
+    flag_path.write_text(
+        json.dumps(
+            {
+                "timestamp": "2026-01-01T00:00:00",
+                "n_rows_checked": 1,
+                "valid": False,
+                "issues": ["1 row(s) with 'hum' outside [0.0, 1.0]"],
+            }
+        )
+    )
+
+
+def test_run_uses_fallback_when_validation_flag_invalid(monkeypatch, tmp_path):
+    """
+    When the hourly validation flag marks the newly revealed data invalid,
+    run() must not call the real model for the main prediction — it serves
+    the 168h-ago actuals instead and tags the row so downstream monitoring
+    can exclude it.
+    """
+    import mlflow.lightgbm
+    from bike_sharing.models import predict as predict_mod
+
+    n = 200
+    dates, past = _make_past(n)
+
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    past.to_csv(raw_dir / "hour_past.csv", index=False)
+
+    pred_path = tmp_path / "predictions.csv"
+    state_path = tmp_path / "simulation_state.json"
+    state_path.write_text("{}")
+    artifacts_dir = tmp_path / "artifacts"
+    _write_invalid_flag(artifacts_dir)
+
+    cfg = _run_cfg(raw_dir, pred_path, state_path, artifacts_dir)
+
+    monkeypatch.setattr(mlflow.lightgbm, "load_model", lambda *a, **k: _FakeModel())
+    monkeypatch.setattr(predict_mod, "MlflowClient", lambda: _FakeMlflowClient())
+
+    predict_mod.run(cfg)
+
+    out = pd.read_csv(pred_path)
+    next_dt = dates[n - 1] + pd.Timedelta(hours=1)
+    row = out[pd.to_datetime(out["timestamp_predicted"]) == next_dt].iloc[0]
+
+    lookback_dt = next_dt - pd.Timedelta(hours=168)
+    expected = past[
+        pd.to_datetime(past["dteday"]) + pd.to_timedelta(past["hr"], unit="h") == lookback_dt
+    ].iloc[0]
+
+    assert row["prediction_source"] == "fallback_lag168"
+    assert pd.isna(row["model_version_registered"])
+    assert pd.isna(row["model_version_casual"])
+    assert row["pred_registered"] == round(float(expected["registered"]), 2)
+    assert row["pred_casual"] == round(float(expected["casual"]), 2)
+    assert row["pred_total"] == round(float(expected["cnt"]), 2)
+
+
+def test_run_skips_prediction_when_invalid_and_no_lag168_data_available(monkeypatch, tmp_path):
+    """
+    If the flag is invalid AND there isn't 168h of history yet either, run()
+    must not write anything for this hour — the existing backfill mechanism
+    fills the gap once trustworthy data returns.
+    """
+    import mlflow.lightgbm
+    from bike_sharing.models import predict as predict_mod
+
+    n = 50  # less than 168h of history
+    dates, past = _make_past(n)
+
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    past.to_csv(raw_dir / "hour_past.csv", index=False)
+
+    pred_path = tmp_path / "predictions.csv"
+    state_path = tmp_path / "simulation_state.json"
+    state_path.write_text("{}")
+    artifacts_dir = tmp_path / "artifacts"
+    _write_invalid_flag(artifacts_dir)
+
+    cfg = _run_cfg(raw_dir, pred_path, state_path, artifacts_dir)
+
+    monkeypatch.setattr(mlflow.lightgbm, "load_model", lambda *a, **k: _FakeModel())
+    monkeypatch.setattr(predict_mod, "MlflowClient", lambda: _FakeMlflowClient())
+
+    predict_mod.run(cfg)
+
+    assert not pred_path.exists()

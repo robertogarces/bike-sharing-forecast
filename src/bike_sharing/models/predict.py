@@ -196,6 +196,51 @@ def get_missing_hours(
     return missing
 
 
+def get_fallback_prediction(past: pd.DataFrame, target_dt: pd.Timestamp) -> dict | None:
+    """
+    Fall back to the actual demand from exactly 168h (one week) ago, same
+    hour — the same seasonality the model's own cnt_lag_168 feature already
+    relies on. Used when the input data for `target_dt` can't be trusted
+    (see load_hourly_validation_flag), so the real model isn't run on data
+    that might be corrupted.
+
+    Returns
+    -------
+    dict | None
+        {"pred_registered", "pred_casual", "pred_total"} from that hour's
+        real values, or None if it isn't available yet (e.g. less than a
+        week of simulated history) — the caller should skip this hour
+        entirely in that case; the existing backfill mechanism fills it in
+        once trustworthy data returns.
+    """
+    past = past.copy()
+    past["dteday"] = pd.to_datetime(past["dteday"])
+    past["datetime"] = past["dteday"] + pd.to_timedelta(past["hr"], unit="h")
+
+    lookback_dt = target_dt - pd.Timedelta(hours=168)
+    row = past[past["datetime"] == lookback_dt]
+    if row.empty:
+        return None
+    row = row.iloc[0]
+    return {
+        "pred_registered": float(row["registered"]),
+        "pred_casual": float(row["casual"]),
+        "pred_total": float(row["cnt"]),
+    }
+
+
+def load_hourly_validation_flag(flag_path: Path) -> dict | None:
+    """
+    Load the hourly data validation result written by update_simulation.py.
+    Returns None if the flag doesn't exist — treated as "trust the data",
+    for back-compat and cold starts before this check existed.
+    """
+    if not flag_path.exists():
+        return None
+    with open(flag_path) as f:
+        return json.load(f)
+
+
 def run(cfg: DictConfig) -> None:
     raw_dir = Path(cfg.paths.raw_dir)
     state_path = Path(cfg.paths.simulation_state)
@@ -283,9 +328,45 @@ def run(cfg: DictConfig) -> None:
                 "pred_total": round(pred_total_bf, 2),
                 "model_version_registered": model_registered_version,
                 "model_version_casual": model_casual_version,
+                "prediction_source": "model",
             }
             append_prediction(pred_record, pred_path)
             logger.info(f"Backfilled prediction for {target_dt}")
+
+    # ── Check hourly data validation before the main prediction ────────────────
+    # Backfill above covers OLDER gaps using each historical slice's own
+    # data, independent of this check — only the current hour's prediction
+    # is gated by whether the rows revealed THIS run passed validation.
+    validation_flag_path = Path(cfg.paths.artifacts_dir) / "validation" / "hourly_validation.json"
+    validation = load_hourly_validation_flag(validation_flag_path)
+
+    if validation is not None and not validation["valid"]:
+        logger.error(f"Hourly data validation failed — not using the model: {validation['issues']}")
+        fallback = get_fallback_prediction(past, next_dt)
+        if fallback is None:
+            logger.warning(
+                f"No data available from 168h ago either — skipping prediction for {next_dt}. "
+                f"Backfill will fill this gap once trustworthy data returns."
+            )
+            return
+        pred_record = {
+            "predicted_at": datetime.now().isoformat(),
+            "timestamp_predicted": next_dt.isoformat(),
+            "hr": int(next_row["hr"].values[0]),
+            "temp": float(next_row["temp"].values[0]),
+            "hum": float(next_row["hum"].values[0]),
+            "weathersit": int(next_row["weathersit"].values[0]),
+            "workingday": int(last_record["workingday"]),
+            "pred_registered": round(fallback["pred_registered"], 2),
+            "pred_casual": round(fallback["pred_casual"], 2),
+            "pred_total": round(fallback["pred_total"], 2),
+            "model_version_registered": None,
+            "model_version_casual": None,
+            "prediction_source": "fallback_lag168",
+        }
+        append_prediction(pred_record, pred_path)
+        logger.warning(f"Served fallback prediction (168h lag) for {next_dt}")
+        return
 
     # ── Predict ───────────────────────────────────────────────────────────────
     pred_registered = float(np.expm1(model_registered.predict(X))[0])
@@ -313,6 +394,7 @@ def run(cfg: DictConfig) -> None:
         "pred_total": round(pred_total, 2),
         "model_version_registered": model_registered_version,
         "model_version_casual": model_casual_version,
+        "prediction_source": "model",
     }
 
     append_prediction(pred_record, pred_path)

@@ -7,6 +7,8 @@ import hydra
 import pandas as pd
 from omegaconf import DictConfig
 
+from bike_sharing.data.validate_data import validate_data_quality
+
 logger = logging.getLogger(__name__)
 
 
@@ -82,10 +84,33 @@ def move_revealed_records(
     return updated_past, len(revealed)
 
 
+def write_hourly_validation_flag(issues: list[str], n_checked: int, flag_path: Path) -> None:
+    """
+    Persist the data quality result for the rows revealed this hour, so
+    predict.py can decide whether to trust them before generating a
+    forecast. Always written, even with n_checked=0 — otherwise predict.py
+    could read a stale flag from a previous hour.
+    """
+    flag_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(flag_path, "w") as f:
+        json.dump(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "n_rows_checked": n_checked,
+                "valid": len(issues) == 0,
+                "issues": issues,
+            },
+            f,
+            indent=2,
+        )
+    logger.info(f"Hourly validation flag saved to {flag_path}")
+
+
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     raw_dir = Path(cfg.paths.raw_dir)
     state_path = Path(cfg.paths.simulation_state)
+    validation_flag_path = Path(cfg.paths.artifacts_dir) / "validation" / "hourly_validation.json"
 
     # ── Load state ────────────────────────────────────────────────────────────
     state = load_simulation_state(state_path)
@@ -100,6 +125,7 @@ def main(cfg: DictConfig) -> None:
 
     if len(future) == 0:
         logger.warning("Simulation exhausted — no future records remaining.")
+        write_hourly_validation_flag([], n_checked=0, flag_path=validation_flag_path)
         return
 
     # ── Move revealed records ─────────────────────────────────────────────────
@@ -117,6 +143,22 @@ def main(cfg: DictConfig) -> None:
         logger.info(
             f"Past: {len(past):,} records | Future: {len(future) - n_moved:,} records remaining"
         )
+
+    # ── Validate newly revealed rows ───────────────────────────────────────────
+    # Only rows revealed THIS run — they're always the most recent (revealed
+    # hours are chronological), so re-checking rows already validated in
+    # prior hourly runs is unnecessary work.
+    revealed = past.tail(n_moved)
+    issues = validate_data_quality(
+        revealed,
+        required_columns=list(cfg.validation.required_columns),
+        ranges={k: list(v) for k, v in cfg.validation.ranges.items()},
+    )
+    write_hourly_validation_flag(issues, n_checked=n_moved, flag_path=validation_flag_path)
+    if issues:
+        logger.error(f"Hourly data validation failed for {n_moved} revealed row(s): {issues}")
+    else:
+        logger.info(f"Hourly data validation passed ({n_moved} row(s) checked)")
 
     # ── Summary ───────────────────────────────────────────────────────────────
     total_records = state["n_future_records"] + state["n_past_records"]

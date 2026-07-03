@@ -2,9 +2,33 @@ import pandas as pd
 import pytest
 
 from bike_sharing.monitoring.performance_monitoring import (
+    load_predictions,
     join_predictions_with_actuals,
     compute_rolling_performance,
 )
+
+
+# ── load_predictions ─────────────────────────────────────────────────────────
+
+
+def test_load_predictions_excludes_fallback_rows(tmp_path):
+    """
+    fallback_lag168 rows aren't real model output — if this filter silently
+    breaks, they'd contaminate RMSE/MAE without any crash or visible error.
+    """
+    pred_path = tmp_path / "predictions.csv"
+    pd.DataFrame(
+        {
+            "timestamp_predicted": pd.date_range("2026-01-01", periods=2, freq="h"),
+            "pred_total": [100.0, 200.0],
+            "prediction_source": ["model", "fallback_lag168"],
+        }
+    ).to_csv(pred_path, index=False)
+
+    df = load_predictions(pred_path)
+
+    assert len(df) == 1
+    assert df["prediction_source"].tolist() == ["model"]
 
 
 # ── join_predictions_with_actuals ───────────────────────────────────────────

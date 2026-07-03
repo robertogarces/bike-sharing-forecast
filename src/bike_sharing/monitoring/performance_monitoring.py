@@ -17,9 +17,16 @@ logger = logging.getLogger(__name__)
 def load_predictions(pred_path: Path) -> pd.DataFrame:
     """
     Load predictions.csv and parse its timestamp column.
+
+    Excludes fallback_lag168 rows (served when hourly data validation fails)
+    — they're not real model output and would corrupt RMSE/MAE/RMSLE/R².
+    Older predictions.csv files without a prediction_source column are
+    assumed to be all real model predictions.
     """
     df = pd.read_csv(pred_path)
     df["timestamp_predicted"] = pd.to_datetime(df["timestamp_predicted"], format="ISO8601")
+    if "prediction_source" in df.columns:
+        df = df[df["prediction_source"] != "fallback_lag168"]
     return df
 
 
