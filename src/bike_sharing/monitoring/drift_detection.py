@@ -16,14 +16,57 @@ from bike_sharing.utils.mlflow_utils import setup_mlflow
 
 logger = logging.getLogger(__name__)
 
+# Excluded from drift comparison: days_since_start is a monotonic trend
+# feature — reference (train, older) and current (recent) windows can never
+# overlap in its range, so it always shows as "drifted" regardless of real
+# degradation. It stays in FEATURES for training/inference; only the drift
+# check excludes it.
+DRIFT_FEATURES = [f for f in FEATURES if f != "days_since_start"]
 
-def load_reference(processed_dir: Path) -> pd.DataFrame:
+
+def load_reference(
+    processed_dir: Path,
+    months: list[int],
+    min_reference_rows: int = 500,
+) -> pd.DataFrame:
     """
-    Load the training dataset as the drift reference.
-    Only feature columns are kept — target and metadata are excluded.
+    Load the training dataset as the drift reference, restricted to rows
+    from the same calendar month(s) as the current window (mnth is
+    preserved in train.csv, unaffected by the simulation's date-shifting).
+
+    Comparing against all months mixes every season into one distribution,
+    so a single week's weather/demand-level features almost always look
+    "drifted" against the full-year average — not because of real model
+    degradation, but because a week is never representative of a year.
+
+    If the month-matched subset is too thin (e.g. early in the simulation,
+    before a given month has repeated enough times in the revealed
+    history), widen to the neighboring months (±1) for more statistical
+    power, at the cost of being slightly less season-precise. Falls back
+    to the full reference only if even that widened window is too thin.
+
+    Parameters
+    ----------
+    processed_dir : Path
+        Directory containing train.csv.
+    months : list[int]
+        Calendar month(s) (1-12) covered by the current window.
+    min_reference_rows : int
+        Minimum reference rows required before widening/falling back.
     """
     df = pd.read_csv(processed_dir / "train.csv")
-    return df[FEATURES]
+
+    subset = df[df["mnth"].isin(months)]
+    if len(subset) < min_reference_rows:
+        widened = set(months)
+        widened |= {((m - 1 + 1) % 12) + 1 for m in months}  # month + 1
+        widened |= {((m - 1 - 1) % 12) + 1 for m in months}  # month - 1
+        subset = df[df["mnth"].isin(widened)]
+
+    if len(subset) < min_reference_rows:
+        subset = df
+
+    return subset[DRIFT_FEATURES]
 
 
 def load_current(
@@ -48,7 +91,9 @@ def load_current(
     Returns
     -------
     pd.DataFrame
-        Current data with feature columns only.
+        Current data with DRIFT_FEATURES columns plus `mnth` — the caller
+        uses `mnth` to pick a matching reference; it is not itself part of
+        the drift comparison.
     """
     from bike_sharing.features.build_features import build_lag_features, build_calendar_features
 
@@ -65,9 +110,9 @@ def load_current(
     min_date = df["dteday"].min()
     df = build_calendar_features(df, drop_cols=["atemp", "yr"], min_date=min_date)
 
-    df = df.dropna(subset=FEATURES).tail(n_hours)
+    df = df.dropna(subset=DRIFT_FEATURES).tail(n_hours)
 
-    return df[FEATURES]
+    return df[DRIFT_FEATURES + ["mnth"]]
 
 
 def run_drift_report(
@@ -101,7 +146,7 @@ def run_drift_report(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    column_mapping = ColumnMapping(numerical_features=FEATURES)
+    column_mapping = ColumnMapping(numerical_features=DRIFT_FEATURES)
 
     report = Report(metrics=[DataDriftPreset()])
     report.run(
@@ -149,17 +194,23 @@ def main(cfg: DictConfig) -> None:
     drift_dir = artifacts_dir / "drift"
     drift_threshold = float(cfg.monitoring.drift_threshold)
 
-    # ── Load data ─────────────────────────────────────────────────────────────
-    logger.info("Loading reference data (train set)")
-    reference = load_reference(processed_dir)
-
+    # ── Load current first — its calendar month(s) drive which reference to use ──
     logger.info(f"Loading current data (last {cfg.monitoring.n_hours} hours)")
-    current = load_current(
+    current_raw = load_current(
         raw_dir,
         cfg.paths.input_file,
         n_hours=cfg.monitoring.n_hours,
         lags=list(cfg.features.lags),
         rolling_windows=list(cfg.features.rolling_windows),
+    )
+    months = sorted(current_raw["mnth"].unique().tolist())
+    current = current_raw[DRIFT_FEATURES]
+
+    logger.info(f"Loading reference data (train set, month(s) {months})")
+    reference = load_reference(
+        processed_dir,
+        months,
+        min_reference_rows=cfg.monitoring.min_reference_rows,
     )
 
     logger.info(f"Reference: {len(reference):,} rows | Current: {len(current):,} rows")
