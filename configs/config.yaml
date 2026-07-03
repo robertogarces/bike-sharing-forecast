@@ -6,6 +6,7 @@ defaults:
   - paths: default
   - monitoring: default
   - training: default
+  - validation: default
   - _self_
 
 project: bike-sharing-forecast

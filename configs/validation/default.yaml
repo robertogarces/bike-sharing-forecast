@@ -1,0 +1,30 @@
+required_columns:
+  - instant
+  - dteday
+  - season
+  - yr
+  - mnth
+  - hr
+  - holiday
+  - weekday
+  - workingday
+  - weathersit
+  - temp
+  - atemp
+  - hum
+  - windspeed
+  - casual
+  - registered
+  - cnt
+
+ranges:
+  season: [1, 4]
+  weathersit: [1, 4]
+  hr: [0, 23]
+  holiday: [0, 1]
+  weekday: [0, 6]
+  workingday: [0, 1]
+  temp: [0.0, 1.0]
+  atemp: [0.0, 1.0]
+  hum: [0.0, 1.0]
+  windspeed: [0.0, 1.0]

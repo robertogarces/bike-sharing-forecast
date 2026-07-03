@@ -11,6 +11,7 @@ import mlflow.lightgbm
 import numpy as np
 import pandas as pd
 from mlflow.tracking import MlflowClient
+from bike_sharing.data.validate_data import validate_data_quality
 from bike_sharing.models.train import compute_metrics, FEATURES
 from bike_sharing.utils.mlflow_utils import setup_mlflow
 
@@ -263,6 +264,22 @@ def main(cfg: DictConfig) -> None:
                 f"{new_hours}h of new data since last retrain "
                 f"(≥ {cfg.training.min_new_hours}) — proceeding"
             )
+
+    # ── Validate data quality ──────────────────────────────────────────────────
+    # Runs even with force=True — this isn't a "should we retrain" business
+    # decision like the two gates above, it's a safety check: retraining on
+    # corrupted data (a broken sensor, a schema change) makes the model worse,
+    # regardless of how confident we are that retraining is otherwise warranted.
+    hour_past_df = pd.read_csv(hour_past_path)
+    issues = validate_data_quality(
+        hour_past_df,
+        required_columns=list(cfg.validation.required_columns),
+        ranges={k: list(v) for k, v in cfg.validation.ranges.items()},
+    )
+    if issues:
+        logger.error(f"Data quality check failed — aborting retrain: {issues}")
+        return
+    logger.info("Data quality check passed")
 
     # ── Retrain pipeline ──────────────────────────────────────────────────────
     logger.info("Starting retraining pipeline")
