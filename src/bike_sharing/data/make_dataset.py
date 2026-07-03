@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
-    raw_dir = Path(cfg.dataset.raw_dir)
+    raw_dir = Path(cfg.paths.raw_dir)
     raw_dir.mkdir(parents=True, exist_ok=True)
 
     token_path = Path.home() / ".kaggle" / "access_token"

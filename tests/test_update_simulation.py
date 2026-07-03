@@ -13,38 +13,42 @@ def simulation_files():
     Create temporary past and future CSV files for testing.
     Returns paths to both files inside a temp directory.
     """
-    past_data = pd.DataFrame({
-        "dteday":     ["2026-06-01"] * 24,
-        "hr":         list(range(24)),
-        "cnt":        list(range(100, 124)),
-        "registered": list(range(80, 104)),
-        "casual":     list(range(20, 44)),
-        "workingday": [1] * 24,
-        "season":     [2] * 24,
-        "temp":       [0.5] * 24,
-        "hum":        [0.6] * 24,
-        "weathersit": [1] * 24,
-        "windspeed":  [0.2] * 24,
-    })
+    past_data = pd.DataFrame(
+        {
+            "dteday": ["2026-06-01"] * 24,
+            "hr": list(range(24)),
+            "cnt": list(range(100, 124)),
+            "registered": list(range(80, 104)),
+            "casual": list(range(20, 44)),
+            "workingday": [1] * 24,
+            "season": [2] * 24,
+            "temp": [0.5] * 24,
+            "hum": [0.6] * 24,
+            "weathersit": [1] * 24,
+            "windspeed": [0.2] * 24,
+        }
+    )
 
-    future_data = pd.DataFrame({
-        "dteday":     ["2026-06-02"] * 24,
-        "hr":         list(range(24)),
-        "cnt":        list(range(200, 224)),
-        "registered": list(range(160, 184)),
-        "casual":     list(range(40, 64)),
-        "workingday": [1] * 24,
-        "season":     [2] * 24,
-        "temp":       [0.5] * 24,
-        "hum":        [0.6] * 24,
-        "weathersit": [1] * 24,
-        "windspeed":  [0.2] * 24,
-    })
+    future_data = pd.DataFrame(
+        {
+            "dteday": ["2026-06-02"] * 24,
+            "hr": list(range(24)),
+            "cnt": list(range(200, 224)),
+            "registered": list(range(160, 184)),
+            "casual": list(range(40, 64)),
+            "workingday": [1] * 24,
+            "season": [2] * 24,
+            "temp": [0.5] * 24,
+            "hum": [0.6] * 24,
+            "weathersit": [1] * 24,
+            "windspeed": [0.2] * 24,
+        }
+    )
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        past_path   = Path(tmpdir) / "hour_past.csv"
+        past_path = Path(tmpdir) / "hour_past.csv"
         future_path = Path(tmpdir) / "hour_future.csv"
-        past_data.to_csv(past_path,   index=False)
+        past_data.to_csv(past_path, index=False)
         future_data.to_csv(future_path, index=False)
         yield past_path, future_path
 

@@ -1,3 +1,4 @@
-n_hours: 168            # number of hours to look back for drift detection, default is 7 days
-drift_threshold: 0.5    # drift threshold for monitoring, if the drift score is above this value, it will trigger an alert
-max_backfill_hours: 48  # maximum hours to backfill when gaps are detected in predictions
+n_hours: 168               # number of hours to look back for drift detection, default is 7 days
+drift_threshold: 0.5       # drift threshold for monitoring, if the drift score is above this value, it will trigger an alert
+max_backfill_hours: 48     # maximum hours to backfill when gaps are detected in predictions
+min_reference_rows: 500    # minimum reference rows for a month-matched drift comparison before widening to month ± 1, then falling back to the full reference

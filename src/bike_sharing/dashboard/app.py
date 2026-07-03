@@ -1,9 +1,7 @@
 import json
 import pandas as pd
-import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
-import plotly.express as px
 from pathlib import Path
 
 # ── Page config ───────────────────────────────────────────────────────────────
@@ -14,11 +12,12 @@ st.set_page_config(
 )
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-ROOT          = Path(__file__).parents[3]
-PREDICTIONS   = ROOT / "data" / "predictions" / "predictions.csv"
-PAST          = ROOT / "data" / "raw" / "hour_past.csv"
-METRICS       = ROOT / "artifacts" / "evaluation" / "metrics.json"
-STATE         = ROOT / "data" / "simulation_state.json"
+ROOT = Path(__file__).parents[3]
+PREDICTIONS = ROOT / "data" / "predictions" / "predictions.csv"
+PAST = ROOT / "data" / "raw" / "hour_past.csv"
+METRICS = ROOT / "artifacts" / "evaluation" / "metrics.json"
+STATE = ROOT / "data" / "simulation_state.json"
+
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=60)
@@ -27,7 +26,7 @@ def load_predictions() -> pd.DataFrame:
         return pd.DataFrame()
     df = pd.read_csv(PREDICTIONS)
     df["timestamp_predicted"] = pd.to_datetime(df["timestamp_predicted"], format="ISO8601")
-    df["predicted_at"]        = pd.to_datetime(df["predicted_at"], format="ISO8601")
+    df["predicted_at"] = pd.to_datetime(df["predicted_at"], format="ISO8601")
     return df.sort_values("timestamp_predicted")
 
 
@@ -37,7 +36,9 @@ def load_actuals() -> pd.DataFrame:
         return pd.DataFrame()
     df = pd.read_csv(PAST, parse_dates=["dteday"])
     df["datetime"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
-    return df[["datetime", "cnt"]].rename(columns={"datetime": "timestamp_predicted", "cnt": "actual_total"})
+    return df[["datetime", "cnt"]].rename(
+        columns={"datetime": "timestamp_predicted", "cnt": "actual_total"}
+    )
 
 
 @st.cache_data(ttl=300)
@@ -62,9 +63,9 @@ def main():
     st.caption("Next-hour demand forecasting system · Predictions update every hour")
 
     predictions = load_predictions()
-    actuals     = load_actuals()
-    metrics     = load_metrics()
-    state       = load_state()
+    actuals = load_actuals()
+    metrics = load_metrics()
+    state = load_state()
 
     if predictions.empty:
         st.warning("No predictions available yet. Run predict.py first.")
@@ -76,28 +77,31 @@ def main():
         st.caption("How accurate is the model?")
 
         if metrics:
-            rmse  = metrics.get("rmse", 0)
+            rmse = metrics.get("rmse", 0)
             rmsle = metrics.get("rmsle", 0)
-            r2    = metrics.get("r2", 0)
+            r2 = metrics.get("r2", 0)
 
             st.metric("RMSE", f"{rmse:.1f} bikes")
             st.caption(f"On average, the model is off by **{rmse:.0f} bikes per hour**.")
 
             st.metric("RMSLE", f"{rmsle:.4f}")
-            st.caption(f"The model has an average relative error of **{rmsle*100:.1f}%**.")
+            st.caption(f"The model has an average relative error of **{rmsle * 100:.1f}%**.")
 
             st.metric("R²", f"{r2:.4f}")
-            st.caption(f"The model explains **{r2*100:.1f}%** of demand variability.")
+            st.caption(f"The model explains **{r2 * 100:.1f}%** of demand variability.")
 
         st.divider()
         st.header("Simulation Status")
 
         if state:
-            future_end   = pd.Timestamp(state.get("future_end_date", ""))
-            future_start = pd.Timestamp(state.get("future_start_date", ""))
+            future_end = pd.Timestamp(state.get("future_end_date", ""))
             total_future = state.get("n_future_records", 0)
-            remaining    = len(pd.read_csv(ROOT / "data" / "raw" / "hour_future.csv")) if (ROOT / "data" / "raw" / "hour_future.csv").exists() else 0
-            pct_used     = (total_future - remaining) / total_future * 100 if total_future > 0 else 0
+            remaining = (
+                len(pd.read_csv(ROOT / "data" / "raw" / "hour_future.csv"))
+                if (ROOT / "data" / "raw" / "hour_future.csv").exists()
+                else 0
+            )
+            pct_used = (total_future - remaining) / total_future * 100 if total_future > 0 else 0
 
             st.progress(pct_used / 100)
             st.caption(f"Simulation: {pct_used:.1f}% complete")
@@ -114,26 +118,28 @@ def main():
 
     with col1:
         # Gauge
-        fig_gauge = go.Figure(go.Indicator(
-            mode="gauge+number",
-            value=pred_total,
-            title={"text": "Predicted Bikes Needed", "font": {"size": 18}},
-            gauge={
-                "axis":  {"range": [0, 900]},
-                "bar":   {"color": "#1F77B4"},
-                "steps": [
-                    {"range": [0,   200], "color": "#EAF4FB"},
-                    {"range": [200, 500], "color": "#AED6F1"},
-                    {"range": [500, 900], "color": "#2E86C1"},
-                ],
-                "threshold": {
-                    "line":  {"color": "red", "width": 3},
-                    "thickness": 0.75,
-                    "value": 700,
+        fig_gauge = go.Figure(
+            go.Indicator(
+                mode="gauge+number",
+                value=pred_total,
+                title={"text": "Predicted Bikes Needed", "font": {"size": 18}},
+                gauge={
+                    "axis": {"range": [0, 900]},
+                    "bar": {"color": "#1F77B4"},
+                    "steps": [
+                        {"range": [0, 200], "color": "#EAF4FB"},
+                        {"range": [200, 500], "color": "#AED6F1"},
+                        {"range": [500, 900], "color": "#2E86C1"},
+                    ],
+                    "threshold": {
+                        "line": {"color": "red", "width": 3},
+                        "thickness": 0.75,
+                        "value": 700,
+                    },
                 },
-            },
-            number={"suffix": " bikes", "font": {"size": 36}},
-        ))
+                number={"suffix": " bikes", "font": {"size": 36}},
+            )
+        )
         fig_gauge.update_layout(height=300, margin=dict(t=40, b=0, l=20, r=20))
         st.plotly_chart(fig_gauge, use_container_width=True)
 
@@ -154,24 +160,28 @@ def main():
     last_24_with_actuals = last_24.merge(actuals, on="timestamp_predicted", how="left")
 
     fig_line = go.Figure()
-    fig_line.add_trace(go.Scatter(
-        x=last_24_with_actuals["timestamp_predicted"],
-        y=last_24_with_actuals["pred_total"],
-        mode="lines+markers",
-        name="Predicted",
-        line=dict(color="#1F77B4", width=2),
-        marker=dict(size=6),
-    ))
+    fig_line.add_trace(
+        go.Scatter(
+            x=last_24_with_actuals["timestamp_predicted"],
+            y=last_24_with_actuals["pred_total"],
+            mode="lines+markers",
+            name="Predicted",
+            line=dict(color="#1F77B4", width=2),
+            marker=dict(size=6),
+        )
+    )
     if last_24_with_actuals["actual_total"].notna().any():
         actuals_known = last_24_with_actuals.dropna(subset=["actual_total"])
-        fig_line.add_trace(go.Scatter(
-            x=actuals_known["timestamp_predicted"],
-            y=actuals_known["actual_total"],
-            mode="lines+markers",
-            name="Actual",
-            line=dict(color="#E74C3C", width=2, dash="dot"),
-            marker=dict(size=6),
-        ))
+        fig_line.add_trace(
+            go.Scatter(
+                x=actuals_known["timestamp_predicted"],
+                y=actuals_known["actual_total"],
+                mode="lines+markers",
+                name="Actual",
+                line=dict(color="#E74C3C", width=2, dash="dot"),
+                marker=dict(size=6),
+            )
+        )
     fig_line.update_layout(
         xaxis_title="Hour",
         yaxis_title="Bikes",
@@ -185,18 +195,22 @@ def main():
     st.subheader("Demand Breakdown — Registered vs Casual")
 
     fig_bar = go.Figure()
-    fig_bar.add_trace(go.Bar(
-        x=last_24["timestamp_predicted"],
-        y=last_24["pred_registered"],
-        name="Registered",
-        marker_color="#1F77B4",
-    ))
-    fig_bar.add_trace(go.Bar(
-        x=last_24["timestamp_predicted"],
-        y=last_24["pred_casual"],
-        name="Casual",
-        marker_color="#AED6F1",
-    ))
+    fig_bar.add_trace(
+        go.Bar(
+            x=last_24["timestamp_predicted"],
+            y=last_24["pred_registered"],
+            name="Registered",
+            marker_color="#1F77B4",
+        )
+    )
+    fig_bar.add_trace(
+        go.Bar(
+            x=last_24["timestamp_predicted"],
+            y=last_24["pred_casual"],
+            name="Casual",
+            marker_color="#AED6F1",
+        )
+    )
     fig_bar.update_layout(
         barmode="stack",
         xaxis_title="Hour",
@@ -212,19 +226,28 @@ def main():
 
     table = predictions.tail(10).copy()
     table["timestamp_predicted"] = table["timestamp_predicted"].dt.strftime("%Y-%m-%d %H:%M")
-    table["predicted_at"]        = table["predicted_at"].dt.strftime("%Y-%m-%d %H:%M")
-    table = table[[
-        "timestamp_predicted", "pred_total", "pred_registered",
-        "pred_casual", "temp", "hum", "weathersit"
-    ]].rename(columns={
-        "timestamp_predicted": "Hour",
-        "pred_total":          "Total",
-        "pred_registered":     "Registered",
-        "pred_casual":         "Casual",
-        "temp":                "Temp (norm)",
-        "hum":                 "Humidity (norm)",
-        "weathersit":          "Weather",
-    })
+    table["predicted_at"] = table["predicted_at"].dt.strftime("%Y-%m-%d %H:%M")
+    table = table[
+        [
+            "timestamp_predicted",
+            "pred_total",
+            "pred_registered",
+            "pred_casual",
+            "temp",
+            "hum",
+            "weathersit",
+        ]
+    ].rename(
+        columns={
+            "timestamp_predicted": "Hour",
+            "pred_total": "Total",
+            "pred_registered": "Registered",
+            "pred_casual": "Casual",
+            "temp": "Temp (norm)",
+            "hum": "Humidity (norm)",
+            "weathersit": "Weather",
+        }
+    )
     table = table.sort_values("Hour", ascending=False).reset_index(drop=True)
     st.dataframe(table, use_container_width=True)
 

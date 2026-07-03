@@ -4,10 +4,10 @@ from pathlib import Path
 from datetime import datetime
 
 import hydra
-import lightgbm as lgb
 import numpy as np
 import mlflow
 import pandas as pd
+from mlflow.tracking import MlflowClient
 from omegaconf import DictConfig
 
 from bike_sharing.features.build_features import build_lag_features, build_calendar_features
@@ -23,8 +23,7 @@ def load_simulation_state(state_path: Path) -> dict:
     """
     if not state_path.exists():
         raise RuntimeError(
-            "No simulation state found. "
-            "Run shift_dates.py first to initialize the simulation."
+            "No simulation state found. Run shift_dates.py first to initialize the simulation."
         )
     with open(state_path) as f:
         return json.load(f)
@@ -54,15 +53,11 @@ def build_next_hour_features(
         Single-row DataFrame with all features for the next hour.
     """
     past = past.copy()
-    past["dteday"]   = pd.to_datetime(past["dteday"])
+    past["dteday"] = pd.to_datetime(past["dteday"])
     past["datetime"] = past["dteday"] + pd.to_timedelta(past["hr"], unit="h")
 
     # Build lag features on full past history
-    past = build_lag_features(
-        past,
-        lags=[1, 2, 3, 8, 24, 48, 72, 168],
-        rolling_windows=[24, 168]
-    )
+    past = build_lag_features(past, lags=[1, 2, 3, 8, 24, 48, 72, 168], rolling_windows=[24, 168])
 
     # Build calendar features
     past = build_calendar_features(past, drop_cols=["atemp", "yr"], min_date=min_date)
@@ -71,36 +66,36 @@ def build_next_hour_features(
     current = past.iloc[-1].copy()
 
     # Next hour datetime
-    next_dt  = current["datetime"] + pd.Timedelta(hours=1)
-    next_hr  = next_dt.hour
+    next_dt = current["datetime"] + pd.Timedelta(hours=1)
+    next_hr = next_dt.hour
     next_day = next_dt.normalize()
 
     # Build next hour row by shifting lag features
     next_row = current.copy()
     next_row["datetime"] = next_dt
-    next_row["dteday"]   = next_day
-    next_row["hr"]       = next_hr
+    next_row["dteday"] = next_day
+    next_row["hr"] = next_hr
 
     # Shift lags — lag_1 of next hour = cnt of current hour, etc.
-    next_row["cnt_lag_1"]   = current["cnt"]
-    next_row["cnt_lag_2"]   = current["cnt_lag_1"]
-    next_row["cnt_lag_3"]   = current["cnt_lag_2"]
-    next_row["cnt_lag_8"]   = past.iloc[-8]["cnt"]   if len(past) >= 8   else np.nan
-    next_row["cnt_lag_24"]  = past.iloc[-24]["cnt"]  if len(past) >= 24  else np.nan
-    next_row["cnt_lag_48"]  = past.iloc[-48]["cnt"]  if len(past) >= 48  else np.nan
-    next_row["cnt_lag_72"]  = past.iloc[-72]["cnt"]  if len(past) >= 72  else np.nan
+    next_row["cnt_lag_1"] = current["cnt"]
+    next_row["cnt_lag_2"] = current["cnt_lag_1"]
+    next_row["cnt_lag_3"] = current["cnt_lag_2"]
+    next_row["cnt_lag_8"] = past.iloc[-8]["cnt"] if len(past) >= 8 else np.nan
+    next_row["cnt_lag_24"] = past.iloc[-24]["cnt"] if len(past) >= 24 else np.nan
+    next_row["cnt_lag_48"] = past.iloc[-48]["cnt"] if len(past) >= 48 else np.nan
+    next_row["cnt_lag_72"] = past.iloc[-72]["cnt"] if len(past) >= 72 else np.nan
     next_row["cnt_lag_168"] = past.iloc[-168]["cnt"] if len(past) >= 168 else np.nan
 
-    next_row["cnt_rolling_mean_24"]  = past["cnt"].iloc[-24:].mean()
+    next_row["cnt_rolling_mean_24"] = past["cnt"].iloc[-24:].mean()
     next_row["cnt_rolling_mean_168"] = past["cnt"].iloc[-168:].mean()
 
     # Update cyclic and calendar features for next hour
-    next_row["hr_sin"]           = np.sin(2 * np.pi * next_hr / 24)
-    next_row["hr_cos"]           = np.cos(2 * np.pi * next_hr / 24)
-    next_row["hr_workday"]       = next_hr * current["workingday"]
-    next_row["hr_weekend"]       = next_hr * (1 - current["workingday"])
-    next_row["hr_x_season"]      = next_hr * current["season"]
-    next_row["is_rush_hour"]     = int(
+    next_row["hr_sin"] = np.sin(2 * np.pi * next_hr / 24)
+    next_row["hr_cos"] = np.cos(2 * np.pi * next_hr / 24)
+    next_row["hr_workday"] = next_hr * current["workingday"]
+    next_row["hr_weekend"] = next_hr * (1 - current["workingday"])
+    next_row["hr_x_season"] = next_hr * current["season"]
+    next_row["is_rush_hour"] = int(
         (7 <= next_hr <= 9 or 17 <= next_hr <= 19) and current["workingday"] == 1
     )
     next_row["days_since_start"] = (next_day - min_date).days
@@ -113,6 +108,11 @@ def append_prediction(pred_row: dict, pred_path: Path) -> None:
     Append a prediction record to predictions.csv.
     Skips if a prediction for that hour already exists.
     Creates the file with headers if it doesn't exist.
+
+    Reads the existing file and rewrites it with the new row concatenated,
+    rather than a blind mode="a" append — pd.concat aligns columns by name
+    and fills NaN for any column missing on either side, so the schema can
+    evolve (e.g. a new column added later) without corrupting older rows.
     """
     df_new = pd.DataFrame([pred_row])
 
@@ -123,10 +123,12 @@ def append_prediction(pred_row: dict, pred_path: Path) -> None:
                 f"Prediction for {pred_row['timestamp_predicted']} already exists — skipping."
             )
             return
-        df_new.to_csv(pred_path, mode="a", header=False, index=False)
+        updated = pd.concat([existing, df_new], ignore_index=True)
     else:
         pred_path.parent.mkdir(parents=True, exist_ok=True)
-        df_new.to_csv(pred_path, index=False)
+        updated = df_new
+
+    updated.to_csv(pred_path, index=False)
 
 
 def get_missing_hours(
@@ -168,12 +170,14 @@ def get_missing_hours(
         return []
 
     past = past.copy()
-    past["dteday"]   = pd.to_datetime(past["dteday"])
+    past["dteday"] = pd.to_datetime(past["dteday"])
     past["datetime"] = past["dteday"] + pd.to_timedelta(past["hr"], unit="h")
 
     # Only look for gaps after the last existing prediction
     last_predicted = pd.to_datetime(existing["timestamp_predicted"], format="ISO8601").max()
-    predicted_hours = set(pd.to_datetime(existing["timestamp_predicted"], format="ISO8601").tolist())
+    predicted_hours = set(
+        pd.to_datetime(existing["timestamp_predicted"], format="ISO8601").tolist()
+    )
 
     # Past hours after last prediction, excluding the last record (current hour)
     candidate_hours = past[past["datetime"] > last_predicted]["datetime"].tolist()
@@ -192,10 +196,55 @@ def get_missing_hours(
     return missing
 
 
+def get_fallback_prediction(past: pd.DataFrame, target_dt: pd.Timestamp) -> dict | None:
+    """
+    Fall back to the actual demand from exactly 168h (one week) ago, same
+    hour — the same seasonality the model's own cnt_lag_168 feature already
+    relies on. Used when the input data for `target_dt` can't be trusted
+    (see load_hourly_validation_flag), so the real model isn't run on data
+    that might be corrupted.
+
+    Returns
+    -------
+    dict | None
+        {"pred_registered", "pred_casual", "pred_total"} from that hour's
+        real values, or None if it isn't available yet (e.g. less than a
+        week of simulated history) — the caller should skip this hour
+        entirely in that case; the existing backfill mechanism fills it in
+        once trustworthy data returns.
+    """
+    past = past.copy()
+    past["dteday"] = pd.to_datetime(past["dteday"])
+    past["datetime"] = past["dteday"] + pd.to_timedelta(past["hr"], unit="h")
+
+    lookback_dt = target_dt - pd.Timedelta(hours=168)
+    row = past[past["datetime"] == lookback_dt]
+    if row.empty:
+        return None
+    row = row.iloc[0]
+    return {
+        "pred_registered": float(row["registered"]),
+        "pred_casual": float(row["casual"]),
+        "pred_total": float(row["cnt"]),
+    }
+
+
+def load_hourly_validation_flag(flag_path: Path) -> dict | None:
+    """
+    Load the hourly data validation result written by update_simulation.py.
+    Returns None if the flag doesn't exist — treated as "trust the data",
+    for back-compat and cold starts before this check existed.
+    """
+    if not flag_path.exists():
+        return None
+    with open(flag_path) as f:
+        return json.load(f)
+
+
 def run(cfg: DictConfig) -> None:
-    raw_dir       = Path(cfg.paths.raw_dir)
-    state_path    = Path(cfg.paths.simulation_state)
-    pred_path     = Path(cfg.paths.predictions_path)
+    raw_dir = Path(cfg.paths.raw_dir)
+    state_path = Path(cfg.paths.simulation_state)
+    pred_path = Path(cfg.paths.predictions_path)
 
     # ── Load simulation state ─────────────────────────────────────────────────
     load_simulation_state(state_path)
@@ -206,13 +255,13 @@ def run(cfg: DictConfig) -> None:
     past["dteday"] = pd.to_datetime(past["dteday"])
 
     last_record = past.sort_values(["dteday", "hr"]).iloc[-1]
-    current_dt  = pd.to_datetime(last_record["dteday"]) + pd.Timedelta(hours=int(last_record["hr"]))
-    next_dt     = current_dt + pd.Timedelta(hours=1)
+    current_dt = pd.to_datetime(last_record["dteday"]) + pd.Timedelta(hours=int(last_record["hr"]))
+    next_dt = current_dt + pd.Timedelta(hours=1)
 
     logger.info(f"Current hour: {current_dt} | Predicting: {next_dt}")
 
     # ── Validate data freshness ───────────────────────────────────────────────
-    now      = datetime.now()
+    now = datetime.now()
     data_lag = now - current_dt.to_pydatetime()
 
     if data_lag > pd.Timedelta(hours=2):
@@ -224,18 +273,22 @@ def run(cfg: DictConfig) -> None:
         logger.info(f"Data freshness OK — lag: {data_lag}")
 
     # ── Load models from MLflow registry ─────────────────────────────────────
-    model_registered = mlflow.lightgbm.load_model(
-        f"models:/{cfg.project}-registered@production"
-    )
-    model_casual = mlflow.lightgbm.load_model(
-        f"models:/{cfg.project}-casual@production"
-    )
+    client = MlflowClient()
+    model_registered_version = client.get_model_version_by_alias(
+        f"{cfg.project}-registered", "production"
+    ).version
+    model_casual_version = client.get_model_version_by_alias(
+        f"{cfg.project}-casual", "production"
+    ).version
+
+    model_registered = mlflow.lightgbm.load_model(f"models:/{cfg.project}-registered@production")
+    model_casual = mlflow.lightgbm.load_model(f"models:/{cfg.project}-casual@production")
 
     # ── Build features ────────────────────────────────────────────────────────
     logger.info("Building features for next hour")
     min_date = past["dteday"].min()
     next_row = build_next_hour_features(past, min_date)
-    X        = next_row[FEATURES]
+    X = next_row[FEATURES]
 
     # ── Backfill missing predictions ──────────────────────────────────────────
     missing_hours = get_missing_hours(past, pred_path, cfg.monitoring.max_backfill_hours)
@@ -245,7 +298,7 @@ def run(cfg: DictConfig) -> None:
 
         for target_dt in missing_hours:
             # Build past slice up to the hour before target_dt
-            past["dteday"]   = pd.to_datetime(past["dteday"])
+            past["dteday"] = pd.to_datetime(past["dteday"])
             past["datetime"] = past["dteday"] + pd.to_timedelta(past["hr"], unit="h")
             past_slice = past[past["datetime"] < target_dt].copy()
 
@@ -254,33 +307,71 @@ def run(cfg: DictConfig) -> None:
                 continue
 
             next_row_bf = build_next_hour_features(past_slice, min_date)
-            X_bf        = next_row_bf[FEATURES]
+            X_bf = next_row_bf[FEATURES]
 
             pred_registered_bf = float(np.expm1(model_registered.predict(X_bf))[0])
-            pred_casual_bf     = float(np.expm1(model_casual.predict(X_bf))[0])
-            pred_total_bf      = max(0, pred_registered_bf + pred_casual_bf)
+            pred_casual_bf = float(np.expm1(model_casual.predict(X_bf))[0])
+            pred_total_bf = max(0, pred_registered_bf + pred_casual_bf)
 
             actual_row = past[past["datetime"] == target_dt].iloc[0]
 
             pred_record = {
-                "predicted_at":        datetime.now().isoformat(),
+                "predicted_at": datetime.now().isoformat(),
                 "timestamp_predicted": target_dt.isoformat(),
-                "hr":                  int(actual_row["hr"]),
-                "temp":                float(actual_row["temp"]),
-                "hum":                 float(actual_row["hum"]),
-                "weathersit":          int(actual_row["weathersit"]),
-                "workingday":          int(actual_row["workingday"]),
-                "pred_registered":     round(pred_registered_bf, 2),
-                "pred_casual":         round(pred_casual_bf, 2),
-                "pred_total":          round(pred_total_bf, 2),
+                "hr": int(actual_row["hr"]),
+                "temp": float(actual_row["temp"]),
+                "hum": float(actual_row["hum"]),
+                "weathersit": int(actual_row["weathersit"]),
+                "workingday": int(actual_row["workingday"]),
+                "pred_registered": round(pred_registered_bf, 2),
+                "pred_casual": round(pred_casual_bf, 2),
+                "pred_total": round(pred_total_bf, 2),
+                "model_version_registered": model_registered_version,
+                "model_version_casual": model_casual_version,
+                "prediction_source": "model",
             }
             append_prediction(pred_record, pred_path)
             logger.info(f"Backfilled prediction for {target_dt}")
-            
+
+    # ── Check hourly data validation before the main prediction ────────────────
+    # Backfill above covers OLDER gaps using each historical slice's own
+    # data, independent of this check — only the current hour's prediction
+    # is gated by whether the rows revealed THIS run passed validation.
+    validation_flag_path = Path(cfg.paths.artifacts_dir) / "validation" / "hourly_validation.json"
+    validation = load_hourly_validation_flag(validation_flag_path)
+
+    if validation is not None and not validation["valid"]:
+        logger.error(f"Hourly data validation failed — not using the model: {validation['issues']}")
+        fallback = get_fallback_prediction(past, next_dt)
+        if fallback is None:
+            logger.warning(
+                f"No data available from 168h ago either — skipping prediction for {next_dt}. "
+                f"Backfill will fill this gap once trustworthy data returns."
+            )
+            return
+        pred_record = {
+            "predicted_at": datetime.now().isoformat(),
+            "timestamp_predicted": next_dt.isoformat(),
+            "hr": int(next_row["hr"].values[0]),
+            "temp": float(next_row["temp"].values[0]),
+            "hum": float(next_row["hum"].values[0]),
+            "weathersit": int(next_row["weathersit"].values[0]),
+            "workingday": int(last_record["workingday"]),
+            "pred_registered": round(fallback["pred_registered"], 2),
+            "pred_casual": round(fallback["pred_casual"], 2),
+            "pred_total": round(fallback["pred_total"], 2),
+            "model_version_registered": None,
+            "model_version_casual": None,
+            "prediction_source": "fallback_lag168",
+        }
+        append_prediction(pred_record, pred_path)
+        logger.warning(f"Served fallback prediction (168h lag) for {next_dt}")
+        return
+
     # ── Predict ───────────────────────────────────────────────────────────────
     pred_registered = float(np.expm1(model_registered.predict(X))[0])
-    pred_casual     = float(np.expm1(model_casual.predict(X))[0])
-    pred_total      = max(0, pred_registered + pred_casual)
+    pred_casual = float(np.expm1(model_casual.predict(X))[0])
+    pred_total = max(0, pred_registered + pred_casual)
 
     logger.info(
         f"Prediction for {next_dt} — "
@@ -291,16 +382,19 @@ def run(cfg: DictConfig) -> None:
 
     # ── Save prediction ───────────────────────────────────────────────────────
     pred_record = {
-        "predicted_at":        datetime.now().isoformat(),
+        "predicted_at": datetime.now().isoformat(),
         "timestamp_predicted": next_dt.isoformat(),
-        "hr":                  int(next_row["hr"].values[0]),
-        "temp":                float(next_row["temp"].values[0]),
-        "hum":                 float(next_row["hum"].values[0]),
-        "weathersit":          int(next_row["weathersit"].values[0]),
-        "workingday":          int(last_record["workingday"]),
-        "pred_registered":     round(pred_registered, 2),
-        "pred_casual":         round(pred_casual, 2),
-        "pred_total":          round(pred_total, 2),
+        "hr": int(next_row["hr"].values[0]),
+        "temp": float(next_row["temp"].values[0]),
+        "hum": float(next_row["hum"].values[0]),
+        "weathersit": int(next_row["weathersit"].values[0]),
+        "workingday": int(last_record["workingday"]),
+        "pred_registered": round(pred_registered, 2),
+        "pred_casual": round(pred_casual, 2),
+        "pred_total": round(pred_total, 2),
+        "model_version_registered": model_registered_version,
+        "model_version_casual": model_casual_version,
+        "prediction_source": "model",
     }
 
     append_prediction(pred_record, pred_path)

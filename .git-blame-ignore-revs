@@ -1,0 +1,10 @@
+# Commits listed here are skipped by `git blame` (and by GitHub's blame
+# view, which reads this file automatically). Use it only for commits
+# that are pure mechanical reformatting/renaming — never for commits
+# that also change behavior.
+#
+# Usage: git blame --ignore-revs-file .git-blame-ignore-revs <file>
+# Or configure once: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style: apply ruff format
+dad8c9e349553d6822b94d11aa1f21451c2f883f

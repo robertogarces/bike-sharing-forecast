@@ -24,6 +24,9 @@ scipy
 # Testing
 pytest
 
+# Linting
+ruff
+
 # Dashboard
 streamlit
 plotly

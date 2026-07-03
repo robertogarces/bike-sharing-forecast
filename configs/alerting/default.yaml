@@ -1,0 +1,4 @@
+dedup_hours: 24
+weekly_report_label: weekly-report
+output_drift_label: output-drift-alert
+data_quality_label: data-quality-alert

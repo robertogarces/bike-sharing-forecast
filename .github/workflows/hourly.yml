@@ -5,6 +5,21 @@ on:
     - cron: "0 * * * *"  # runs every hour at minute 0
   workflow_dispatch:       # allows manual trigger from GitHub UI
 
+# Serialize against the weekly workflow: both push data/DVC state to main and
+# would collide every Monday 00:00 UTC. Shared group name; wait rather than
+# cancel so neither run's push is lost.
+concurrency:
+  group: main-state
+  cancel-in-progress: false
+
+# Explicit permissions block: contents:write is needed for the existing git
+# push step, issues:write is new (for hourly_alert.py's GitHub issue alerts).
+# Declaring this block replaces the default permissions entirely, so both
+# must be listed even though only issues:write is new.
+permissions:
+  contents: write
+  issues: write
+
 jobs:
   predict:
     runs-on: ubuntu-latest
@@ -44,6 +59,17 @@ jobs:
       - name: Predict next hour
         run: python src/bike_sharing/models/predict.py
 
+      - name: Run output drift detection
+        run: python src/bike_sharing/monitoring/output_drift_detection.py
+
+      - name: Run hourly alert
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+        run: python src/bike_sharing/monitoring/hourly_alert.py
+
       - name: Register updated files with DVC
         run: |
           dvc add data/raw/hour_past.csv \
@@ -59,5 +85,6 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/raw/hour_past.csv.dvc data/raw/hour_future.csv.dvc data/simulation_state.json.dvc data/predictions/predictions.csv.dvc dvc.lock
+          [ -f artifacts/monitoring/output_drift_history.csv ] && git add artifacts/monitoring/output_drift_history.csv
           git diff --staged --quiet || git commit -m "chore: sync local state after successful hourly workflow [skip ci]"
           git push

@@ -38,7 +38,9 @@ def check_existing_state(state_path: Path) -> None:
         )
 
 
-def shift_dates(df: pd.DataFrame, reference_date: pd.Timestamp, future_pct: float) -> tuple[pd.DataFrame, dict]:
+def shift_dates(
+    df: pd.DataFrame, reference_date: pd.Timestamp, future_pct: float
+) -> tuple[pd.DataFrame, dict]:
     """
     Shift all dates in the dataset so that the last `future_pct` of records
     start at `reference_date`.
@@ -63,7 +65,7 @@ def shift_dates(df: pd.DataFrame, reference_date: pd.Timestamp, future_pct: floa
         Shifted DataFrame and simulation state metadata.
     """
     n_future = int(len(df) * future_pct)
-    n_past   = len(df) - n_future
+    n_past = len(df) - n_future
 
     future_start_original = df.iloc[n_past]["dteday"]
     shift = reference_date - future_start_original
@@ -72,16 +74,16 @@ def shift_dates(df: pd.DataFrame, reference_date: pd.Timestamp, future_pct: floa
     df["dteday"] = pd.to_datetime(df["dteday"]) + shift
 
     future_start = df.iloc[n_past]["dteday"]
-    future_end   = df.iloc[-1]["dteday"]
+    future_end = df.iloc[-1]["dteday"]
 
     state = {
-        "reference_date":    reference_date.strftime("%Y-%m-%d"),
-        "future_pct":        future_pct,
-        "shift_applied_at":  datetime.now().isoformat(),
+        "reference_date": reference_date.strftime("%Y-%m-%d"),
+        "future_pct": future_pct,
+        "shift_applied_at": datetime.now().isoformat(),
         "future_start_date": future_start.strftime("%Y-%m-%d"),
-        "future_end_date":   future_end.strftime("%Y-%m-%d"),
-        "n_future_records":  n_future,
-        "n_past_records":    n_past,
+        "future_end_date": future_end.strftime("%Y-%m-%d"),
+        "n_future_records": n_future,
+        "n_past_records": n_past,
     }
 
     return df, state
@@ -89,7 +91,7 @@ def shift_dates(df: pd.DataFrame, reference_date: pd.Timestamp, future_pct: floa
 
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
-    raw_dir    = Path(cfg.paths.raw_dir)
+    raw_dir = Path(cfg.paths.raw_dir)
     state_path = Path(cfg.paths.simulation_state)
 
     # ── Safety check ──────────────────────────────────────────────────────────
@@ -101,7 +103,7 @@ def main(cfg: DictConfig) -> None:
     df["dteday"] = pd.to_datetime(df["dteday"])
 
     reference_date = pd.Timestamp(cfg.simulation.reference_date)
-    future_pct     = cfg.simulation.future_pct
+    future_pct = cfg.simulation.future_pct
 
     logger.info(
         f"Shifting dates — reference: {reference_date.date()} | "
@@ -111,9 +113,7 @@ def main(cfg: DictConfig) -> None:
     # ── Shift ─────────────────────────────────────────────────────────────────
     df_shifted, state = shift_dates(df, reference_date, future_pct)
 
-    logger.info(
-        f"Future window: {state['future_start_date']} → {state['future_end_date']}"
-    )
+    logger.info(f"Future window: {state['future_start_date']} → {state['future_end_date']}")
 
     # ── Save shifted dataset ──────────────────────────────────────────────────
     output_path = raw_dir / "hour_shifted.csv"
@@ -128,14 +128,14 @@ def main(cfg: DictConfig) -> None:
 
     # ── Split past / future ───────────────────────────────────────────────────
     logger.info("Splitting into past and future datasets")
-    now    = pd.Timestamp(cfg.simulation.reference_date)
-    past   = df_shifted[df_shifted["dteday"] <  now].copy()
+    now = pd.Timestamp(cfg.simulation.reference_date)
+    past = df_shifted[df_shifted["dteday"] < now].copy()
     future = df_shifted[df_shifted["dteday"] >= now].copy()
 
-    past_path   = raw_dir / cfg.paths.input_file
+    past_path = raw_dir / cfg.paths.input_file
     future_path = raw_dir / "hour_future.csv"
 
-    past.to_csv(past_path,   index=False)
+    past.to_csv(past_path, index=False)
     future.to_csv(future_path, index=False)
 
     logger.info(f"Saved past dataset ({len(past):,} records)")

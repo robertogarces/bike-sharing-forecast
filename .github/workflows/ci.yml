@@ -2,9 +2,9 @@ name: CI — Run Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 jobs:
   test:
@@ -23,6 +23,12 @@ jobs:
         run: |
           pip install -e .
           pip install -r requirements.txt
+
+      - name: Lint (ruff check)
+        run: ruff check .
+
+      - name: Format check (ruff format)
+        run: ruff format --check .
 
       - name: Run tests
         run: pytest tests/ -v

@@ -1,5 +1,3 @@
-import pytest
-import numpy as np
 import pandas as pd
 
 from bike_sharing.features.build_features import build_lag_features, build_calendar_features
@@ -10,7 +8,7 @@ def test_build_lag_features_creates_correct_columns(sample_df_with_datetime):
     build_lag_features should create exactly the lag and rolling columns
     specified in the lags and rolling_windows parameters.
     """
-    lags            = [1, 2, 24]
+    lags = [1, 2, 24]
     rolling_windows = [24]
 
     result = build_lag_features(sample_df_with_datetime, lags=lags, rolling_windows=rolling_windows)
@@ -48,12 +46,20 @@ def test_build_calendar_features_creates_correct_columns(sample_df_with_datetime
     build_calendar_features should create all expected engineered columns.
     """
     expected_cols = [
-        "hr_sin", "hr_cos", "mnth_sin", "mnth_cos",
-        "hr_workday", "hr_weekend", "hr_x_season",
-        "is_rush_hour", "days_since_start",
+        "hr_sin",
+        "hr_cos",
+        "mnth_sin",
+        "mnth_cos",
+        "hr_workday",
+        "hr_weekend",
+        "hr_x_season",
+        "is_rush_hour",
+        "days_since_start",
     ]
 
-    result = build_calendar_features(sample_df_with_datetime, drop_cols=["atemp", "yr"], min_date=min_date)
+    result = build_calendar_features(
+        sample_df_with_datetime, drop_cols=["atemp", "yr"], min_date=min_date
+    )
 
     for col in expected_cols:
         assert col in result.columns, f"Missing column: {col}"
@@ -64,7 +70,9 @@ def test_cyclic_features_in_valid_range(sample_df_with_datetime, min_date):
     Sin and cos encodings must always be in [-1, 1].
     If they fall outside this range, the cyclic encoding formula is wrong.
     """
-    result = build_calendar_features(sample_df_with_datetime, drop_cols=["atemp", "yr"], min_date=min_date)
+    result = build_calendar_features(
+        sample_df_with_datetime, drop_cols=["atemp", "yr"], min_date=min_date
+    )
 
     for col in ["hr_sin", "hr_cos", "mnth_sin", "mnth_cos"]:
         assert result[col].between(-1, 1).all(), f"{col} has values outside [-1, 1]"
@@ -75,7 +83,9 @@ def test_rush_hour_only_on_working_days(sample_df_with_datetime, min_date):
     is_rush_hour should only be 1 on working days during 7-9 AM or 5-7 PM.
     On weekends or outside those hours it must always be 0.
     """
-    result = build_calendar_features(sample_df_with_datetime, drop_cols=["atemp", "yr"], min_date=min_date)
+    result = build_calendar_features(
+        sample_df_with_datetime, drop_cols=["atemp", "yr"], min_date=min_date
+    )
 
     # is_rush_hour must be 0 on non-working days
     non_working = result[result["workingday"] == 0]
@@ -83,9 +93,9 @@ def test_rush_hour_only_on_working_days(sample_df_with_datetime, min_date):
 
     # is_rush_hour must be 0 outside rush hours on working days
     working_non_rush = result[
-        (result["workingday"] == 1) &
-        (~result["hr"].between(7, 9)) &
-        (~result["hr"].between(17, 19))
+        (result["workingday"] == 1)
+        & (~result["hr"].between(7, 9))
+        & (~result["hr"].between(17, 19))
     ]
     assert (working_non_rush["is_rush_hour"] == 0).all()
 
@@ -94,7 +104,9 @@ def test_drop_cols_are_removed(sample_df_with_datetime, min_date):
     """
     Columns specified in drop_cols should not appear in the output.
     """
-    result = build_calendar_features(sample_df_with_datetime, drop_cols=["atemp", "yr"], min_date=min_date)
+    result = build_calendar_features(
+        sample_df_with_datetime, drop_cols=["atemp", "yr"], min_date=min_date
+    )
 
     assert "atemp" not in result.columns
-    assert "yr"    not in result.columns
+    assert "yr" not in result.columns
