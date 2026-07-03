@@ -497,6 +497,7 @@ python-dateutil==2.9.0.post0
     #   pandas
 python-dotenv==1.2.2
     # via
+    #   -r requirements.in
     #   mlflow-skinny
     #   pydantic-settings
     #   uvicorn
@@ -546,6 +547,8 @@ ruamel-yaml==0.19.1
     # via
     #   dvc
     #   gto
+ruff==0.15.20
+    # via -r requirements.in
 scikit-learn==1.8.0
     # via
     #   -r requirements.in

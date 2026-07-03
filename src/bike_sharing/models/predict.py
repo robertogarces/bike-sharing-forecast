@@ -4,7 +4,6 @@ from pathlib import Path
 from datetime import datetime
 
 import hydra
-import lightgbm as lgb
 import numpy as np
 import mlflow
 import pandas as pd
@@ -24,8 +23,7 @@ def load_simulation_state(state_path: Path) -> dict:
     """
     if not state_path.exists():
         raise RuntimeError(
-            "No simulation state found. "
-            "Run shift_dates.py first to initialize the simulation."
+            "No simulation state found. Run shift_dates.py first to initialize the simulation."
         )
     with open(state_path) as f:
         return json.load(f)
@@ -55,15 +53,11 @@ def build_next_hour_features(
         Single-row DataFrame with all features for the next hour.
     """
     past = past.copy()
-    past["dteday"]   = pd.to_datetime(past["dteday"])
+    past["dteday"] = pd.to_datetime(past["dteday"])
     past["datetime"] = past["dteday"] + pd.to_timedelta(past["hr"], unit="h")
 
     # Build lag features on full past history
-    past = build_lag_features(
-        past,
-        lags=[1, 2, 3, 8, 24, 48, 72, 168],
-        rolling_windows=[24, 168]
-    )
+    past = build_lag_features(past, lags=[1, 2, 3, 8, 24, 48, 72, 168], rolling_windows=[24, 168])
 
     # Build calendar features
     past = build_calendar_features(past, drop_cols=["atemp", "yr"], min_date=min_date)
@@ -72,36 +66,36 @@ def build_next_hour_features(
     current = past.iloc[-1].copy()
 
     # Next hour datetime
-    next_dt  = current["datetime"] + pd.Timedelta(hours=1)
-    next_hr  = next_dt.hour
+    next_dt = current["datetime"] + pd.Timedelta(hours=1)
+    next_hr = next_dt.hour
     next_day = next_dt.normalize()
 
     # Build next hour row by shifting lag features
     next_row = current.copy()
     next_row["datetime"] = next_dt
-    next_row["dteday"]   = next_day
-    next_row["hr"]       = next_hr
+    next_row["dteday"] = next_day
+    next_row["hr"] = next_hr
 
     # Shift lags — lag_1 of next hour = cnt of current hour, etc.
-    next_row["cnt_lag_1"]   = current["cnt"]
-    next_row["cnt_lag_2"]   = current["cnt_lag_1"]
-    next_row["cnt_lag_3"]   = current["cnt_lag_2"]
-    next_row["cnt_lag_8"]   = past.iloc[-8]["cnt"]   if len(past) >= 8   else np.nan
-    next_row["cnt_lag_24"]  = past.iloc[-24]["cnt"]  if len(past) >= 24  else np.nan
-    next_row["cnt_lag_48"]  = past.iloc[-48]["cnt"]  if len(past) >= 48  else np.nan
-    next_row["cnt_lag_72"]  = past.iloc[-72]["cnt"]  if len(past) >= 72  else np.nan
+    next_row["cnt_lag_1"] = current["cnt"]
+    next_row["cnt_lag_2"] = current["cnt_lag_1"]
+    next_row["cnt_lag_3"] = current["cnt_lag_2"]
+    next_row["cnt_lag_8"] = past.iloc[-8]["cnt"] if len(past) >= 8 else np.nan
+    next_row["cnt_lag_24"] = past.iloc[-24]["cnt"] if len(past) >= 24 else np.nan
+    next_row["cnt_lag_48"] = past.iloc[-48]["cnt"] if len(past) >= 48 else np.nan
+    next_row["cnt_lag_72"] = past.iloc[-72]["cnt"] if len(past) >= 72 else np.nan
     next_row["cnt_lag_168"] = past.iloc[-168]["cnt"] if len(past) >= 168 else np.nan
 
-    next_row["cnt_rolling_mean_24"]  = past["cnt"].iloc[-24:].mean()
+    next_row["cnt_rolling_mean_24"] = past["cnt"].iloc[-24:].mean()
     next_row["cnt_rolling_mean_168"] = past["cnt"].iloc[-168:].mean()
 
     # Update cyclic and calendar features for next hour
-    next_row["hr_sin"]           = np.sin(2 * np.pi * next_hr / 24)
-    next_row["hr_cos"]           = np.cos(2 * np.pi * next_hr / 24)
-    next_row["hr_workday"]       = next_hr * current["workingday"]
-    next_row["hr_weekend"]       = next_hr * (1 - current["workingday"])
-    next_row["hr_x_season"]      = next_hr * current["season"]
-    next_row["is_rush_hour"]     = int(
+    next_row["hr_sin"] = np.sin(2 * np.pi * next_hr / 24)
+    next_row["hr_cos"] = np.cos(2 * np.pi * next_hr / 24)
+    next_row["hr_workday"] = next_hr * current["workingday"]
+    next_row["hr_weekend"] = next_hr * (1 - current["workingday"])
+    next_row["hr_x_season"] = next_hr * current["season"]
+    next_row["is_rush_hour"] = int(
         (7 <= next_hr <= 9 or 17 <= next_hr <= 19) and current["workingday"] == 1
     )
     next_row["days_since_start"] = (next_day - min_date).days
@@ -176,12 +170,14 @@ def get_missing_hours(
         return []
 
     past = past.copy()
-    past["dteday"]   = pd.to_datetime(past["dteday"])
+    past["dteday"] = pd.to_datetime(past["dteday"])
     past["datetime"] = past["dteday"] + pd.to_timedelta(past["hr"], unit="h")
 
     # Only look for gaps after the last existing prediction
     last_predicted = pd.to_datetime(existing["timestamp_predicted"], format="ISO8601").max()
-    predicted_hours = set(pd.to_datetime(existing["timestamp_predicted"], format="ISO8601").tolist())
+    predicted_hours = set(
+        pd.to_datetime(existing["timestamp_predicted"], format="ISO8601").tolist()
+    )
 
     # Past hours after last prediction, excluding the last record (current hour)
     candidate_hours = past[past["datetime"] > last_predicted]["datetime"].tolist()
@@ -201,9 +197,9 @@ def get_missing_hours(
 
 
 def run(cfg: DictConfig) -> None:
-    raw_dir       = Path(cfg.paths.raw_dir)
-    state_path    = Path(cfg.paths.simulation_state)
-    pred_path     = Path(cfg.paths.predictions_path)
+    raw_dir = Path(cfg.paths.raw_dir)
+    state_path = Path(cfg.paths.simulation_state)
+    pred_path = Path(cfg.paths.predictions_path)
 
     # ── Load simulation state ─────────────────────────────────────────────────
     load_simulation_state(state_path)
@@ -214,13 +210,13 @@ def run(cfg: DictConfig) -> None:
     past["dteday"] = pd.to_datetime(past["dteday"])
 
     last_record = past.sort_values(["dteday", "hr"]).iloc[-1]
-    current_dt  = pd.to_datetime(last_record["dteday"]) + pd.Timedelta(hours=int(last_record["hr"]))
-    next_dt     = current_dt + pd.Timedelta(hours=1)
+    current_dt = pd.to_datetime(last_record["dteday"]) + pd.Timedelta(hours=int(last_record["hr"]))
+    next_dt = current_dt + pd.Timedelta(hours=1)
 
     logger.info(f"Current hour: {current_dt} | Predicting: {next_dt}")
 
     # ── Validate data freshness ───────────────────────────────────────────────
-    now      = datetime.now()
+    now = datetime.now()
     data_lag = now - current_dt.to_pydatetime()
 
     if data_lag > pd.Timedelta(hours=2):
@@ -233,21 +229,21 @@ def run(cfg: DictConfig) -> None:
 
     # ── Load models from MLflow registry ─────────────────────────────────────
     client = MlflowClient()
-    model_registered_version = client.get_model_version_by_alias(f"{cfg.project}-registered", "production").version
-    model_casual_version     = client.get_model_version_by_alias(f"{cfg.project}-casual", "production").version
+    model_registered_version = client.get_model_version_by_alias(
+        f"{cfg.project}-registered", "production"
+    ).version
+    model_casual_version = client.get_model_version_by_alias(
+        f"{cfg.project}-casual", "production"
+    ).version
 
-    model_registered = mlflow.lightgbm.load_model(
-        f"models:/{cfg.project}-registered@production"
-    )
-    model_casual = mlflow.lightgbm.load_model(
-        f"models:/{cfg.project}-casual@production"
-    )
+    model_registered = mlflow.lightgbm.load_model(f"models:/{cfg.project}-registered@production")
+    model_casual = mlflow.lightgbm.load_model(f"models:/{cfg.project}-casual@production")
 
     # ── Build features ────────────────────────────────────────────────────────
     logger.info("Building features for next hour")
     min_date = past["dteday"].min()
     next_row = build_next_hour_features(past, min_date)
-    X        = next_row[FEATURES]
+    X = next_row[FEATURES]
 
     # ── Backfill missing predictions ──────────────────────────────────────────
     missing_hours = get_missing_hours(past, pred_path, cfg.monitoring.max_backfill_hours)
@@ -257,7 +253,7 @@ def run(cfg: DictConfig) -> None:
 
         for target_dt in missing_hours:
             # Build past slice up to the hour before target_dt
-            past["dteday"]   = pd.to_datetime(past["dteday"])
+            past["dteday"] = pd.to_datetime(past["dteday"])
             past["datetime"] = past["dteday"] + pd.to_timedelta(past["hr"], unit="h")
             past_slice = past[past["datetime"] < target_dt].copy()
 
@@ -266,35 +262,35 @@ def run(cfg: DictConfig) -> None:
                 continue
 
             next_row_bf = build_next_hour_features(past_slice, min_date)
-            X_bf        = next_row_bf[FEATURES]
+            X_bf = next_row_bf[FEATURES]
 
             pred_registered_bf = float(np.expm1(model_registered.predict(X_bf))[0])
-            pred_casual_bf     = float(np.expm1(model_casual.predict(X_bf))[0])
-            pred_total_bf      = max(0, pred_registered_bf + pred_casual_bf)
+            pred_casual_bf = float(np.expm1(model_casual.predict(X_bf))[0])
+            pred_total_bf = max(0, pred_registered_bf + pred_casual_bf)
 
             actual_row = past[past["datetime"] == target_dt].iloc[0]
 
             pred_record = {
-                "predicted_at":        datetime.now().isoformat(),
+                "predicted_at": datetime.now().isoformat(),
                 "timestamp_predicted": target_dt.isoformat(),
-                "hr":                  int(actual_row["hr"]),
-                "temp":                float(actual_row["temp"]),
-                "hum":                 float(actual_row["hum"]),
-                "weathersit":          int(actual_row["weathersit"]),
-                "workingday":          int(actual_row["workingday"]),
-                "pred_registered":     round(pred_registered_bf, 2),
-                "pred_casual":         round(pred_casual_bf, 2),
-                "pred_total":          round(pred_total_bf, 2),
+                "hr": int(actual_row["hr"]),
+                "temp": float(actual_row["temp"]),
+                "hum": float(actual_row["hum"]),
+                "weathersit": int(actual_row["weathersit"]),
+                "workingday": int(actual_row["workingday"]),
+                "pred_registered": round(pred_registered_bf, 2),
+                "pred_casual": round(pred_casual_bf, 2),
+                "pred_total": round(pred_total_bf, 2),
                 "model_version_registered": model_registered_version,
-                "model_version_casual":     model_casual_version,
+                "model_version_casual": model_casual_version,
             }
             append_prediction(pred_record, pred_path)
             logger.info(f"Backfilled prediction for {target_dt}")
-            
+
     # ── Predict ───────────────────────────────────────────────────────────────
     pred_registered = float(np.expm1(model_registered.predict(X))[0])
-    pred_casual     = float(np.expm1(model_casual.predict(X))[0])
-    pred_total      = max(0, pred_registered + pred_casual)
+    pred_casual = float(np.expm1(model_casual.predict(X))[0])
+    pred_total = max(0, pred_registered + pred_casual)
 
     logger.info(
         f"Prediction for {next_dt} — "
@@ -305,18 +301,18 @@ def run(cfg: DictConfig) -> None:
 
     # ── Save prediction ───────────────────────────────────────────────────────
     pred_record = {
-        "predicted_at":        datetime.now().isoformat(),
+        "predicted_at": datetime.now().isoformat(),
         "timestamp_predicted": next_dt.isoformat(),
-        "hr":                  int(next_row["hr"].values[0]),
-        "temp":                float(next_row["temp"].values[0]),
-        "hum":                 float(next_row["hum"].values[0]),
-        "weathersit":          int(next_row["weathersit"].values[0]),
-        "workingday":          int(last_record["workingday"]),
-        "pred_registered":     round(pred_registered, 2),
-        "pred_casual":         round(pred_casual, 2),
-        "pred_total":          round(pred_total, 2),
+        "hr": int(next_row["hr"].values[0]),
+        "temp": float(next_row["temp"].values[0]),
+        "hum": float(next_row["hum"].values[0]),
+        "weathersit": int(next_row["weathersit"].values[0]),
+        "workingday": int(last_record["workingday"]),
+        "pred_registered": round(pred_registered, 2),
+        "pred_casual": round(pred_casual, 2),
+        "pred_total": round(pred_total, 2),
         "model_version_registered": model_registered_version,
-        "model_version_casual":     model_casual_version,
+        "model_version_casual": model_casual_version,
     }
 
     append_prediction(pred_record, pred_path)

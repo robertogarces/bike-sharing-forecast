@@ -1,10 +1,7 @@
 import pytest
-import json
 import tempfile
-import pandas as pd
 import numpy as np
 from pathlib import Path
-from datetime import datetime
 
 from bike_sharing.models.train import FEATURES
 from bike_sharing.monitoring.drift_detection import load_reference, run_drift_report
@@ -18,25 +15,25 @@ def sample_reference_csv(sample_raw_df):
     df = sample_raw_df.copy()
 
     # Add all required feature columns with synthetic values
-    df["hr_sin"]              = np.sin(2 * np.pi * df["hr"] / 24)
-    df["hr_cos"]              = np.cos(2 * np.pi * df["hr"] / 24)
-    df["mnth_sin"]            = np.sin(2 * np.pi * df["mnth"] / 12)
-    df["mnth_cos"]            = np.cos(2 * np.pi * df["mnth"] / 12)
-    df["hr_workday"]          = df["hr"] * df["workingday"]
-    df["hr_weekend"]          = df["hr"] * (1 - df["workingday"])
-    df["hr_x_season"]         = df["hr"] * df["season"]
-    df["is_rush_hour"]        = 0
-    df["days_since_start"]    = range(len(df))
-    df["cnt_lag_1"]           = df["cnt"].shift(1)
-    df["cnt_lag_2"]           = df["cnt"].shift(2)
-    df["cnt_lag_3"]           = df["cnt"].shift(3)
-    df["cnt_lag_8"]           = df["cnt"].shift(8)
-    df["cnt_lag_24"]          = df["cnt"].shift(24)
-    df["cnt_lag_48"]          = df["cnt"].shift(48)
-    df["cnt_lag_72"]          = df["cnt"].shift(72)
-    df["cnt_lag_168"]         = df["cnt"].shift(168)
+    df["hr_sin"] = np.sin(2 * np.pi * df["hr"] / 24)
+    df["hr_cos"] = np.cos(2 * np.pi * df["hr"] / 24)
+    df["mnth_sin"] = np.sin(2 * np.pi * df["mnth"] / 12)
+    df["mnth_cos"] = np.cos(2 * np.pi * df["mnth"] / 12)
+    df["hr_workday"] = df["hr"] * df["workingday"]
+    df["hr_weekend"] = df["hr"] * (1 - df["workingday"])
+    df["hr_x_season"] = df["hr"] * df["season"]
+    df["is_rush_hour"] = 0
+    df["days_since_start"] = range(len(df))
+    df["cnt_lag_1"] = df["cnt"].shift(1)
+    df["cnt_lag_2"] = df["cnt"].shift(2)
+    df["cnt_lag_3"] = df["cnt"].shift(3)
+    df["cnt_lag_8"] = df["cnt"].shift(8)
+    df["cnt_lag_24"] = df["cnt"].shift(24)
+    df["cnt_lag_48"] = df["cnt"].shift(48)
+    df["cnt_lag_72"] = df["cnt"].shift(72)
+    df["cnt_lag_168"] = df["cnt"].shift(168)
     df["cnt_rolling_mean_24"] = df["cnt"].shift(1).rolling(24).mean()
-    df["cnt_rolling_mean_168"]= df["cnt"].shift(1).rolling(168).mean()
+    df["cnt_rolling_mean_168"] = df["cnt"].shift(1).rolling(168).mean()
 
     df = df.dropna(subset=FEATURES)
 
@@ -62,7 +59,7 @@ def test_run_drift_report_saves_flag(sample_reference_csv):
     of whether drift was detected or not.
     """
     reference = load_reference(sample_reference_csv)
-    current   = reference.tail(50).copy()
+    current = reference.tail(50).copy()
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_dir = Path(tmpdir)
@@ -77,13 +74,20 @@ def test_run_drift_report_flag_has_required_keys(sample_reference_csv):
     Missing keys would cause a KeyError in should_retrain.
     """
     reference = load_reference(sample_reference_csv)
-    current   = reference.tail(50).copy()
+    current = reference.tail(50).copy()
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_dir = Path(tmpdir)
         summary = run_drift_report(reference, current, output_dir, drift_threshold=0.5)
 
-        required_keys = ["timestamp", "n_features", "n_drifted", "drift_share", "drift_detected", "threshold"]
+        required_keys = [
+            "timestamp",
+            "n_features",
+            "n_drifted",
+            "drift_share",
+            "drift_detected",
+            "threshold",
+        ]
         for key in required_keys:
             assert key in summary, f"Missing key in drift summary: {key}"
 
@@ -94,7 +98,7 @@ def test_run_drift_report_no_drift_on_identical_data(sample_reference_csv):
     and drift_detected should be False.
     """
     reference = load_reference(sample_reference_csv)
-    current   = reference.copy()
+    current = reference.copy()
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_dir = Path(tmpdir)
