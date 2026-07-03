@@ -158,6 +158,27 @@ def test_append_prediction_skips_duplicate(sample_pred, tmp_path):
     assert len(df) == 1
 
 
+def test_append_prediction_handles_new_column_without_corrupting_old_rows(sample_pred, tmp_path):
+    """
+    Schema evolution: if a later prediction includes a column the existing
+    file doesn't have (e.g. model_version_registered added after go-live),
+    pd.concat must align by name — old rows get NaN for the new column,
+    not a corrupted/misaligned CSV.
+    """
+    pred_path = tmp_path / "predictions.csv"
+    append_prediction(sample_pred, pred_path)  # old schema, no model_version
+
+    second = sample_pred.copy()
+    second["timestamp_predicted"] = "2024-06-01T12:00:00"
+    second["model_version_registered"] = "7"
+    append_prediction(second, pred_path)
+
+    df = pd.read_csv(pred_path)
+    assert len(df) == 2
+    assert pd.isna(df.iloc[0]["model_version_registered"])
+    assert df.iloc[1]["model_version_registered"] == 7
+
+
 # ── run(): backfill must not corrupt the main (next-hour) prediction ──────────
 
 class _FakeModel:
@@ -172,6 +193,21 @@ class _FakeModel:
     """
     def predict(self, X):
         return np.log1p(X["cnt_lag_1"].values)
+
+
+class _FakeVersion:
+    def __init__(self, version):
+        self.version = version
+
+
+class _FakeMlflowClient:
+    """
+    Stub for MlflowClient.get_model_version_by_alias — avoids the test
+    depending on whatever MLflow registry state happens to be reachable
+    (e.g. a local mlruns/ store from a previous manual run).
+    """
+    def get_model_version_by_alias(self, name, alias):
+        return _FakeVersion("1")
 
 
 def _make_past(n: int = 200):
@@ -244,6 +280,7 @@ def test_run_main_prediction_uses_next_hour_not_backfill(monkeypatch, tmp_path):
     })
 
     monkeypatch.setattr(mlflow.lightgbm, "load_model", lambda *a, **k: _FakeModel())
+    monkeypatch.setattr(predict_mod, "MlflowClient", lambda: _FakeMlflowClient())
 
     predict_mod.run(cfg)
 

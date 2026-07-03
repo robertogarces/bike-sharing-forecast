@@ -8,6 +8,7 @@ import lightgbm as lgb
 import numpy as np
 import mlflow
 import pandas as pd
+from mlflow.tracking import MlflowClient
 from omegaconf import DictConfig
 
 from bike_sharing.features.build_features import build_lag_features, build_calendar_features
@@ -113,6 +114,11 @@ def append_prediction(pred_row: dict, pred_path: Path) -> None:
     Append a prediction record to predictions.csv.
     Skips if a prediction for that hour already exists.
     Creates the file with headers if it doesn't exist.
+
+    Reads the existing file and rewrites it with the new row concatenated,
+    rather than a blind mode="a" append — pd.concat aligns columns by name
+    and fills NaN for any column missing on either side, so the schema can
+    evolve (e.g. a new column added later) without corrupting older rows.
     """
     df_new = pd.DataFrame([pred_row])
 
@@ -123,10 +129,12 @@ def append_prediction(pred_row: dict, pred_path: Path) -> None:
                 f"Prediction for {pred_row['timestamp_predicted']} already exists — skipping."
             )
             return
-        df_new.to_csv(pred_path, mode="a", header=False, index=False)
+        updated = pd.concat([existing, df_new], ignore_index=True)
     else:
         pred_path.parent.mkdir(parents=True, exist_ok=True)
-        df_new.to_csv(pred_path, index=False)
+        updated = df_new
+
+    updated.to_csv(pred_path, index=False)
 
 
 def get_missing_hours(
@@ -224,6 +232,10 @@ def run(cfg: DictConfig) -> None:
         logger.info(f"Data freshness OK — lag: {data_lag}")
 
     # ── Load models from MLflow registry ─────────────────────────────────────
+    client = MlflowClient()
+    model_registered_version = client.get_model_version_by_alias(f"{cfg.project}-registered", "production").version
+    model_casual_version     = client.get_model_version_by_alias(f"{cfg.project}-casual", "production").version
+
     model_registered = mlflow.lightgbm.load_model(
         f"models:/{cfg.project}-registered@production"
     )
@@ -273,6 +285,8 @@ def run(cfg: DictConfig) -> None:
                 "pred_registered":     round(pred_registered_bf, 2),
                 "pred_casual":         round(pred_casual_bf, 2),
                 "pred_total":          round(pred_total_bf, 2),
+                "model_version_registered": model_registered_version,
+                "model_version_casual":     model_casual_version,
             }
             append_prediction(pred_record, pred_path)
             logger.info(f"Backfilled prediction for {target_dt}")
@@ -301,6 +315,8 @@ def run(cfg: DictConfig) -> None:
         "pred_registered":     round(pred_registered, 2),
         "pred_casual":         round(pred_casual, 2),
         "pred_total":          round(pred_total, 2),
+        "model_version_registered": model_registered_version,
+        "model_version_casual":     model_casual_version,
     }
 
     append_prediction(pred_record, pred_path)
