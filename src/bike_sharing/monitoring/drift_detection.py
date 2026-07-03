@@ -32,7 +32,7 @@ def load_current(
     n_hours: int,
     lags: list[int],
     rolling_windows: list[int],
-) -> pd.DataFrame:    
+) -> pd.DataFrame:
     """
     Load the most recent n_hours records from hour_past.csv as current data.
 
@@ -53,7 +53,7 @@ def load_current(
     from bike_sharing.features.build_features import build_lag_features, build_calendar_features
 
     df = pd.read_csv(raw_dir / input_file)
-    df["dteday"]   = pd.to_datetime(df["dteday"])
+    df["dteday"] = pd.to_datetime(df["dteday"])
     df["datetime"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
 
     df = build_lag_features(
@@ -61,7 +61,7 @@ def load_current(
         lags=lags,
         rolling_windows=rolling_windows,
     )
-    
+
     min_date = df["dteday"].min()
     df = build_calendar_features(df, drop_cols=["atemp", "yr"], min_date=min_date)
 
@@ -116,20 +116,20 @@ def run_drift_report(
     logger.info(f"Drift report saved to {html_path}")
 
     # Extract summary
-    result         = report.as_dict()
-    metrics        = result["metrics"][0]["result"]
-    n_drifted      = metrics["number_of_drifted_columns"]
-    n_total        = metrics["number_of_columns"]
-    drift_share    = n_drifted / n_total
+    result = report.as_dict()
+    metrics = result["metrics"][0]["result"]
+    n_drifted = metrics["number_of_drifted_columns"]
+    n_total = metrics["number_of_columns"]
+    drift_share = n_drifted / n_total
     drift_detected = drift_share > drift_threshold
 
     summary = {
-        "timestamp":      datetime.now().isoformat(),
-        "n_features":     n_total,
-        "n_drifted":      n_drifted,
-        "drift_share":    round(drift_share, 4),
+        "timestamp": datetime.now().isoformat(),
+        "n_features": n_total,
+        "n_drifted": n_drifted,
+        "drift_share": round(drift_share, 4),
         "drift_detected": drift_detected,
-        "threshold":      drift_threshold,
+        "threshold": drift_threshold,
     }
 
     # Save drift flag
@@ -143,10 +143,10 @@ def run_drift_report(
 
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
-    raw_dir       = Path(cfg.paths.raw_dir)
+    raw_dir = Path(cfg.paths.raw_dir)
     processed_dir = Path(cfg.paths.processed_dir)
     artifacts_dir = Path(cfg.paths.artifacts_dir)
-    drift_dir     = artifacts_dir / "drift"
+    drift_dir = artifacts_dir / "drift"
     drift_threshold = float(cfg.monitoring.drift_threshold)
 
     # ── Load data ─────────────────────────────────────────────────────────────
@@ -183,10 +183,12 @@ def main(cfg: DictConfig) -> None:
     setup_mlflow()
     mlflow.set_experiment(cfg.project)
     with mlflow.start_run(run_name="drift_detection"):
-        mlflow.log_metrics({
-            "n_drifted_features": summary["n_drifted"],
-            "drift_share":        summary["drift_share"],
-        })
+        mlflow.log_metrics(
+            {
+                "n_drifted_features": summary["n_drifted"],
+                "drift_share": summary["drift_share"],
+            }
+        )
         mlflow.log_param("drift_detected", summary["drift_detected"])
         mlflow.log_artifact(str(drift_dir / "drift_report.html"))
         logger.info("Logged drift results to MLflow")
@@ -198,6 +200,7 @@ def main(cfg: DictConfig) -> None:
         )
     else:
         logger.info("No significant drift detected — model is stable.")
+
 
 if __name__ == "__main__":
     main()

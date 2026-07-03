@@ -22,13 +22,26 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 FEATURES = [
-    "hr_sin", "hr_cos",
-    "hr_workday", "hr_weekend", "hr_x_season",
-    "is_rush_hour", "days_since_start",
-    "temp", "hum", "weathersit",
-    "cnt_lag_1", "cnt_lag_2", "cnt_lag_3",
-    "cnt_lag_8", "cnt_lag_24", "cnt_lag_48", "cnt_lag_72", "cnt_lag_168",
-    "cnt_rolling_mean_24", "cnt_rolling_mean_168",
+    "hr_sin",
+    "hr_cos",
+    "hr_workday",
+    "hr_weekend",
+    "hr_x_season",
+    "is_rush_hour",
+    "days_since_start",
+    "temp",
+    "hum",
+    "weathersit",
+    "cnt_lag_1",
+    "cnt_lag_2",
+    "cnt_lag_3",
+    "cnt_lag_8",
+    "cnt_lag_24",
+    "cnt_lag_48",
+    "cnt_lag_72",
+    "cnt_lag_168",
+    "cnt_rolling_mean_24",
+    "cnt_rolling_mean_168",
 ]
 
 model_registered = None
@@ -41,7 +54,7 @@ def init():
     version = os.getenv("MODEL_VERSION", "6")
     logger.info(f"Loading models v{version} from MLflow registry")
     model_registered = mlflow.lightgbm.load_model(f"models:/{project}-registered/{version}")
-    model_casual     = mlflow.lightgbm.load_model(f"models:/{project}-casual/{version}")
+    model_casual = mlflow.lightgbm.load_model(f"models:/{project}-casual/{version}")
     logger.info("Models loaded")
 
 

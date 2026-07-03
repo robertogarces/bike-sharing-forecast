@@ -34,8 +34,7 @@ def should_retrain(drift_flag_path: Path, force: bool) -> bool:
 
     if not drift_flag_path.exists():
         logger.warning(
-            "No drift flag found — run drift_detection.py first. "
-            "Use force=True to retrain anyway."
+            "No drift flag found — run drift_detection.py first. Use force=True to retrain anyway."
         )
         return False
 
@@ -89,7 +88,7 @@ def count_new_hours(hour_past_path: Path, marker_path: Path) -> int | None:
     cutoff = pd.to_datetime(marker["data_cutoff"])
 
     df = pd.read_csv(hour_past_path)
-    df["dteday"]   = pd.to_datetime(df["dteday"])
+    df["dteday"] = pd.to_datetime(df["dteday"])
     df["datetime"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
 
     return int((df["datetime"] > cutoff).sum())
@@ -105,16 +104,20 @@ def write_retrain_marker(hour_past_path: Path, marker_path: Path) -> None:
     already spent, so the boundary should advance to avoid re-running next week.
     """
     df = pd.read_csv(hour_past_path)
-    df["dteday"]   = pd.to_datetime(df["dteday"])
+    df["dteday"] = pd.to_datetime(df["dteday"])
     df["datetime"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
     data_cutoff = df["datetime"].max()
 
     marker_path.parent.mkdir(parents=True, exist_ok=True)
     with open(marker_path, "w") as f:
-        json.dump({
-            "data_cutoff": data_cutoff.isoformat(),
-            "written_at":  datetime.now().isoformat(),
-        }, f, indent=2)
+        json.dump(
+            {
+                "data_cutoff": data_cutoff.isoformat(),
+                "written_at": datetime.now().isoformat(),
+            },
+            f,
+            indent=2,
+        )
     logger.info(f"Retrain marker updated — data cutoff: {data_cutoff}")
 
 
@@ -145,17 +148,17 @@ def evaluate_production_pair(project: str, val_df: pd.DataFrame) -> float | None
     """
     try:
         model_registered = mlflow.lightgbm.load_model(f"models:/{project}-registered@production")
-        model_casual     = mlflow.lightgbm.load_model(f"models:/{project}-casual@production")
+        model_casual = mlflow.lightgbm.load_model(f"models:/{project}-casual@production")
     except mlflow.exceptions.MlflowException:
         logger.info("No production model pair found — bootstrap (nothing to compare against)")
         return None
 
-    X_val     = val_df[FEATURES]
+    X_val = val_df[FEATURES]
     y_val_cnt = val_df["cnt"].values
 
     pred_registered = np.expm1(model_registered.predict(X_val))
-    pred_casual     = np.expm1(model_casual.predict(X_val))
-    pred_combined   = np.clip(pred_registered + pred_casual, 0, None)
+    pred_casual = np.expm1(model_casual.predict(X_val))
+    pred_combined = np.clip(pred_registered + pred_casual, 0, None)
 
     return float(compute_metrics(y_val_cnt, pred_combined)["rmse"])
 
@@ -193,7 +196,7 @@ def promote_models_if_better(
     bool
         True if the new pair was promoted to production.
     """
-    model_names  = [f"{project}-registered", f"{project}-casual"]
+    model_names = [f"{project}-registered", f"{project}-casual"]
     new_versions = {
         name: max(client.search_model_versions(f"name='{name}'"), key=lambda v: int(v.version))
         for name in model_names
@@ -214,7 +217,7 @@ def promote_models_if_better(
         for name, version in new_versions.items():
             prod_version = client.get_model_version_by_alias(name, "production")
             client.set_registered_model_alias(name, "production", version.version)
-            client.set_registered_model_alias(name, "archived",   prod_version.version)
+            client.set_registered_model_alias(name, "archived", prod_version.version)
         return True
 
     logger.warning(
@@ -228,11 +231,11 @@ def promote_models_if_better(
 
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
-    artifacts_dir   = Path(cfg.paths.artifacts_dir)
+    artifacts_dir = Path(cfg.paths.artifacts_dir)
     drift_flag_path = artifacts_dir / "drift" / "drift_detected.json"
-    marker_path     = Path(cfg.paths.retrain_marker)
-    hour_past_path  = Path(cfg.paths.raw_dir) / cfg.paths.input_file
-    force           = cfg.training.force_retrain
+    marker_path = Path(cfg.paths.retrain_marker)
+    hour_past_path = Path(cfg.paths.raw_dir) / cfg.paths.input_file
+    force = cfg.training.force_retrain
 
     # ── Configure MLflow ──────────────────────────────────────────────────────
     setup_mlflow()
@@ -281,7 +284,7 @@ def main(cfg: DictConfig) -> None:
     new_rmse = new_metrics["rmse"]
 
     # Production (champion) pair, re-scored on the current val set.
-    val_df    = pd.read_csv(Path(cfg.paths.processed_dir) / "val.csv")
+    val_df = pd.read_csv(Path(cfg.paths.processed_dir) / "val.csv")
     prod_rmse = evaluate_production_pair(cfg.project, val_df)
 
     if prod_rmse is None:

@@ -3,7 +3,11 @@ import numpy as np
 import pandas as pd
 
 from bike_sharing.features.build_features import build_lag_features, build_calendar_features
-from bike_sharing.models.predict import build_next_hour_features, get_missing_hours, append_prediction
+from bike_sharing.models.predict import (
+    build_next_hour_features,
+    get_missing_hours,
+    append_prediction,
+)
 
 
 def test_build_next_hour_features_returns_one_row(sample_df_with_datetime, min_date):
@@ -11,7 +15,9 @@ def test_build_next_hour_features_returns_one_row(sample_df_with_datetime, min_d
     build_next_hour_features should always return exactly one row —
     the feature vector for the next hour prediction.
     """
-    df = build_lag_features(sample_df_with_datetime, lags=[1, 2, 3, 8, 24, 48, 72, 168], rolling_windows=[24, 168])
+    df = build_lag_features(
+        sample_df_with_datetime, lags=[1, 2, 3, 8, 24, 48, 72, 168], rolling_windows=[24, 168]
+    )
     df = build_calendar_features(df, drop_cols=["atemp", "yr"], min_date=min_date)
 
     result = build_next_hour_features(df, min_date)
@@ -24,14 +30,16 @@ def test_build_next_hour_features_correct_hour(sample_df_with_datetime, min_date
     The predicted hour should be exactly one hour after the last record
     in the past dataset.
     """
-    df = build_lag_features(sample_df_with_datetime, lags=[1, 2, 3, 8, 24, 48, 72, 168], rolling_windows=[24, 168])
+    df = build_lag_features(
+        sample_df_with_datetime, lags=[1, 2, 3, 8, 24, 48, 72, 168], rolling_windows=[24, 168]
+    )
     df = build_calendar_features(df, drop_cols=["atemp", "yr"], min_date=min_date)
 
     last_dt = df["datetime"].iloc[-1]
-    result  = build_next_hour_features(df, min_date)
+    result = build_next_hour_features(df, min_date)
 
     expected_next_dt = last_dt + pd.Timedelta(hours=1)
-    actual_next_dt   = pd.Timestamp(result["datetime"].values[0])
+    actual_next_dt = pd.Timestamp(result["datetime"].values[0])
 
     assert actual_next_dt == expected_next_dt
 
@@ -41,11 +49,13 @@ def test_build_next_hour_features_lag1_equals_current_cnt(sample_df_with_datetim
     cnt_lag_1 of the next hour should equal cnt of the current (last) hour.
     This is the core lag shift — the most recent demand becomes lag_1.
     """
-    df = build_lag_features(sample_df_with_datetime, lags=[1, 2, 3, 8, 24, 48, 72, 168], rolling_windows=[24, 168])
+    df = build_lag_features(
+        sample_df_with_datetime, lags=[1, 2, 3, 8, 24, 48, 72, 168], rolling_windows=[24, 168]
+    )
     df = build_calendar_features(df, drop_cols=["atemp", "yr"], min_date=min_date)
 
     current_cnt = df["cnt"].iloc[-1]
-    result      = build_next_hour_features(df, min_date)
+    result = build_next_hour_features(df, min_date)
 
     assert result["cnt_lag_1"].values[0] == current_cnt
 
@@ -54,7 +64,9 @@ def test_build_next_hour_features_cyclic_in_range(sample_df_with_datetime, min_d
     """
     Cyclic features of the next hour must be in [-1, 1].
     """
-    df = build_lag_features(sample_df_with_datetime, lags=[1, 2, 3, 8, 24, 48, 72, 168], rolling_windows=[24, 168])
+    df = build_lag_features(
+        sample_df_with_datetime, lags=[1, 2, 3, 8, 24, 48, 72, 168], rolling_windows=[24, 168]
+    )
     df = build_calendar_features(df, drop_cols=["atemp", "yr"], min_date=min_date)
 
     result = build_next_hour_features(df, min_date)
@@ -65,6 +77,7 @@ def test_build_next_hour_features_cyclic_in_range(sample_df_with_datetime, min_d
 
 
 # ── get_missing_hours ─────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def past_df():
@@ -119,13 +132,20 @@ def test_get_missing_hours_respects_cap(past_df, tmp_path):
 
 # ── append_prediction ─────────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def sample_pred():
     return {
         "predicted_at": "2024-06-01T10:00:00",
         "timestamp_predicted": "2024-06-01T11:00:00",
-        "hr": 11, "temp": 0.5, "hum": 0.6, "weathersit": 1, "workingday": 1,
-        "pred_registered": 120.0, "pred_casual": 30.0, "pred_total": 150.0,
+        "hr": 11,
+        "temp": 0.5,
+        "hum": 0.6,
+        "weathersit": 1,
+        "workingday": 1,
+        "pred_registered": 120.0,
+        "pred_casual": 30.0,
+        "pred_total": 150.0,
     }
 
 
@@ -181,6 +201,7 @@ def test_append_prediction_handles_new_column_without_corrupting_old_rows(sample
 
 # ── run(): backfill must not corrupt the main (next-hour) prediction ──────────
 
+
 class _FakeModel:
     """
     Model stub whose prediction is a deterministic function of the target hour.
@@ -191,6 +212,7 @@ class _FakeModel:
     detect whether the main prediction used next_dt's features or stale
     backfill features.
     """
+
     def predict(self, X):
         return np.log1p(X["cnt_lag_1"].values)
 
@@ -206,31 +228,34 @@ class _FakeMlflowClient:
     depending on whatever MLflow registry state happens to be reachable
     (e.g. a local mlruns/ store from a previous manual run).
     """
+
     def get_model_version_by_alias(self, name, alias):
         return _FakeVersion("1")
 
 
 def _make_past(n: int = 200):
     dates = pd.date_range("2024-01-01", periods=n, freq="h")
-    past = pd.DataFrame({
-        "instant":    range(1, n + 1),
-        "dteday":     dates.date,
-        "season":     1,
-        "yr":         0,
-        "mnth":       dates.month,
-        "hr":         dates.hour,
-        "holiday":    0,
-        "weekday":    dates.dayofweek,
-        "workingday": (dates.dayofweek < 5).astype(int),
-        "weathersit": 1,
-        "temp":       0.5,
-        "atemp":      0.5,
-        "hum":        0.5,
-        "windspeed":  0.2,
-        "casual":     10,
-        "registered": 90,
-        "cnt":        np.arange(1, n + 1),  # unique per hour → unique cnt_lag_1
-    })
+    past = pd.DataFrame(
+        {
+            "instant": range(1, n + 1),
+            "dteday": dates.date,
+            "season": 1,
+            "yr": 0,
+            "mnth": dates.month,
+            "hr": dates.hour,
+            "holiday": 0,
+            "weekday": dates.dayofweek,
+            "workingday": (dates.dayofweek < 5).astype(int),
+            "weathersit": 1,
+            "temp": 0.5,
+            "atemp": 0.5,
+            "hum": 0.5,
+            "windspeed": 0.2,
+            "casual": 10,
+            "registered": 90,
+            "cnt": np.arange(1, n + 1),  # unique per hour → unique cnt_lag_1
+        }
+    )
     return dates, past
 
 
@@ -257,27 +282,36 @@ def test_run_main_prediction_uses_next_hour_not_backfill(monkeypatch, tmp_path):
     # Predictions exist for every hour except the last three → 3-hour backfill
     pred_path = tmp_path / "predictions.csv"
     seeded = [dates[i] for i in range(n - 3)]
-    pd.DataFrame({
-        "predicted_at":        [d.isoformat() for d in seeded],
-        "timestamp_predicted": [d.isoformat() for d in seeded],
-        "hr":                  [d.hour for d in seeded],
-        "temp": 0.5, "hum": 0.5, "weathersit": 1, "workingday": 1,
-        "pred_registered": 1.0, "pred_casual": 1.0, "pred_total": 2.0,
-    }).to_csv(pred_path, index=False)
+    pd.DataFrame(
+        {
+            "predicted_at": [d.isoformat() for d in seeded],
+            "timestamp_predicted": [d.isoformat() for d in seeded],
+            "hr": [d.hour for d in seeded],
+            "temp": 0.5,
+            "hum": 0.5,
+            "weathersit": 1,
+            "workingday": 1,
+            "pred_registered": 1.0,
+            "pred_casual": 1.0,
+            "pred_total": 2.0,
+        }
+    ).to_csv(pred_path, index=False)
 
     state_path = tmp_path / "simulation_state.json"
     state_path.write_text("{}")
 
-    cfg = OmegaConf.create({
-        "project": "bike-sharing-forecast",
-        "paths": {
-            "raw_dir":          str(raw_dir),
-            "input_file":       "hour_past.csv",
-            "simulation_state": str(state_path),
-            "predictions_path": str(pred_path),
-        },
-        "monitoring": {"max_backfill_hours": 48},
-    })
+    cfg = OmegaConf.create(
+        {
+            "project": "bike-sharing-forecast",
+            "paths": {
+                "raw_dir": str(raw_dir),
+                "input_file": "hour_past.csv",
+                "simulation_state": str(state_path),
+                "predictions_path": str(pred_path),
+            },
+            "monitoring": {"max_backfill_hours": 48},
+        }
+    )
 
     monkeypatch.setattr(mlflow.lightgbm, "load_model", lambda *a, **k: _FakeModel())
     monkeypatch.setattr(predict_mod, "MlflowClient", lambda: _FakeMlflowClient())

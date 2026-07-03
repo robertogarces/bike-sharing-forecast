@@ -39,11 +39,14 @@ def test_should_retrain_returns_true_when_drift_detected(drift_flag_dir):
     """
     should_retrain should return True when drift_detected is True in the flag.
     """
-    write_flag(drift_flag_dir, {
-        "drift_detected": True,
-        "drift_share":    0.7,
-        "threshold":      0.5,
-    })
+    write_flag(
+        drift_flag_dir,
+        {
+            "drift_detected": True,
+            "drift_share": 0.7,
+            "threshold": 0.5,
+        },
+    )
 
     assert should_retrain(drift_flag_dir, force=False) is True
 
@@ -52,11 +55,14 @@ def test_should_retrain_returns_false_when_no_drift(drift_flag_dir):
     """
     should_retrain should return False when drift_detected is False.
     """
-    write_flag(drift_flag_dir, {
-        "drift_detected": False,
-        "drift_share":    0.2,
-        "threshold":      0.5,
-    })
+    write_flag(
+        drift_flag_dir,
+        {
+            "drift_detected": False,
+            "drift_share": 0.2,
+            "threshold": 0.5,
+        },
+    )
 
     assert should_retrain(drift_flag_dir, force=False) is False
 
@@ -66,12 +72,15 @@ def test_should_retrain_returns_false_when_insufficient_data(drift_flag_dir):
     should_retrain should return False when drift detection was skipped
     due to insufficient data — identified by the presence of 'reason' key.
     """
-    write_flag(drift_flag_dir, {
-        "drift_detected": False,
-        "drift_share":    0.0,
-        "threshold":      0.5,
-        "reason":         "Not enough data (168 rows < 720 minimum)",
-    })
+    write_flag(
+        drift_flag_dir,
+        {
+            "drift_detected": False,
+            "drift_share": 0.0,
+            "threshold": 0.5,
+            "reason": "Not enough data (168 rows < 720 minimum)",
+        },
+    )
 
     assert should_retrain(drift_flag_dir, force=False) is False
 
@@ -81,11 +90,14 @@ def test_should_retrain_force_overrides_no_drift(drift_flag_dir):
     When force=True, should_retrain should return True regardless of
     what the drift flag says — used for scheduled retraining.
     """
-    write_flag(drift_flag_dir, {
-        "drift_detected": False,
-        "drift_share":    0.0,
-        "threshold":      0.5,
-    })
+    write_flag(
+        drift_flag_dir,
+        {
+            "drift_detected": False,
+            "drift_share": 0.0,
+            "threshold": 0.5,
+        },
+    )
 
     assert should_retrain(drift_flag_dir, force=True) is True
 
@@ -101,6 +113,7 @@ def test_should_retrain_returns_false_when_no_flag_exists(drift_flag_dir):
 
 # ── count_new_hours / write_retrain_marker ────────────────────────────────────
 
+
 @pytest.fixture
 def hour_past_csv():
     """
@@ -111,11 +124,13 @@ def hour_past_csv():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
         times = pd.date_range("2026-01-01 00:00", periods=72, freq="h")
-        df = pd.DataFrame({
-            "dteday": times.normalize().strftime("%Y-%m-%d"),
-            "hr":     times.hour,
-            "cnt":    range(72),
-        })
+        df = pd.DataFrame(
+            {
+                "dteday": times.normalize().strftime("%Y-%m-%d"),
+                "hr": times.hour,
+                "cnt": range(72),
+            }
+        )
         hour_past_path = tmp / "hour_past.csv"
         df.to_csv(hour_past_path, index=False)
         yield hour_past_path, tmp / "last_retrain.json"
@@ -167,6 +182,7 @@ def test_write_then_count_roundtrip_is_zero(hour_past_csv):
 
 # ── evaluate_production_pair ──────────────────────────────────────────────────
 
+
 class _FakeModel:
     """Model stub whose predict() returns a fixed, caller-supplied array."""
 
@@ -188,7 +204,7 @@ def test_evaluate_production_pair_perfect_prediction_gives_zero_rmse(monkeypatch
 
     fakes = {
         f"{project}-registered": _FakeModel(np.log1p([60, 150])),
-        f"{project}-casual":     _FakeModel(np.log1p([40, 50])),
+        f"{project}-casual": _FakeModel(np.log1p([40, 50])),
     }
 
     def fake_load_model(model_uri):
@@ -210,6 +226,7 @@ def test_evaluate_production_pair_returns_none_when_no_production_model(monkeypa
     MLflow raises MlflowException when an alias doesn't exist; the function
     should catch it and return None rather than propagate.
     """
+
     def raise_not_found(model_uri):
         raise mlflow.exceptions.MlflowException("Registered model alias production not found")
 
@@ -221,6 +238,7 @@ def test_evaluate_production_pair_returns_none_when_no_production_model(monkeypa
 
 
 # ── promote_models_if_better ──────────────────────────────────────────────────
+
 
 class _FakeVersion:
     def __init__(self, version):
@@ -242,8 +260,8 @@ class _FakeMlflowClient:
     """
 
     def __init__(self, versions: dict, production: dict):
-        self.versions    = versions
-        self.production  = production
+        self.versions = versions
+        self.production = production
         self.alias_calls = []  # list of (model_name, alias, version)
 
     def search_model_versions(self, filter_str):
@@ -272,7 +290,7 @@ def test_promote_models_if_better_bootstraps_when_no_production():
 
     assert promoted is True
     assert (f"{project}-registered", "production", "3") in client.alias_calls
-    assert (f"{project}-casual",     "production", "3") in client.alias_calls
+    assert (f"{project}-casual", "production", "3") in client.alias_calls
 
 
 def test_promote_models_if_better_promotes_when_new_beats_production():
@@ -290,9 +308,9 @@ def test_promote_models_if_better_promotes_when_new_beats_production():
 
     assert promoted is True
     assert (f"{project}-registered", "production", "5") in client.alias_calls
-    assert (f"{project}-casual",     "production", "5") in client.alias_calls
-    assert (f"{project}-registered", "archived",   "4") in client.alias_calls
-    assert (f"{project}-casual",     "archived",   "4") in client.alias_calls
+    assert (f"{project}-casual", "production", "5") in client.alias_calls
+    assert (f"{project}-registered", "archived", "4") in client.alias_calls
+    assert (f"{project}-casual", "archived", "4") in client.alias_calls
 
 
 def test_promote_models_if_better_keeps_production_when_new_is_worse():
@@ -310,5 +328,5 @@ def test_promote_models_if_better_keeps_production_when_new_is_worse():
 
     assert promoted is False
     assert (f"{project}-registered", "archived", "5") in client.alias_calls
-    assert (f"{project}-casual",     "archived", "5") in client.alias_calls
+    assert (f"{project}-casual", "archived", "5") in client.alias_calls
     assert not any(alias == "production" for (_, alias, _) in client.alias_calls)

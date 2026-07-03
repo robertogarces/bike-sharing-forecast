@@ -28,13 +28,20 @@ def plot_cyclic_encoding() -> HTML:
         angle = 2 * np.pi * h / 24 - np.pi / 2
         ax.scatter(np.cos(angle), np.sin(angle), color="#B4B2A9", s=30, zorder=3)
         if h % 6 == 0:
-            ax.text(np.cos(angle) * 1.2, np.sin(angle) * 1.2, str(h),
-                    ha="center", va="center", fontsize=9, color="#5F5E5A")
+            ax.text(
+                np.cos(angle) * 1.2,
+                np.sin(angle) * 1.2,
+                str(h),
+                ha="center",
+                va="center",
+                fontsize=9,
+                color="#5F5E5A",
+            )
 
     # Animated elements
-    dot,  = ax.plot([], [], "o", color="#378ADD", markersize=12, zorder=5)
+    (dot,) = ax.plot([], [], "o", color="#378ADD", markersize=12, zorder=5)
     label = ax.text(0, -1.4, "", ha="center", fontsize=11, color="#378ADD")
-    trail, = ax.plot([], [], "-", color="#378ADD", alpha=0.3, linewidth=1.5)
+    (trail,) = ax.plot([], [], "-", color="#378ADD", alpha=0.3, linewidth=1.5)
 
     trail_x, trail_y = [], []
 
@@ -43,7 +50,7 @@ def plot_cyclic_encoding() -> HTML:
         x, y = np.cos(angle), np.sin(angle)
         dot.set_data([x], [y])
         label.set_text(
-            f"hr = {h}   →   sin={np.sin(2*np.pi*h/24):.2f}, cos={np.cos(2*np.pi*h/24):.2f}"
+            f"hr = {h}   →   sin={np.sin(2 * np.pi * h / 24):.2f}, cos={np.cos(2 * np.pi * h / 24):.2f}"
         )
         trail_x.append(x)
         trail_y.append(y)

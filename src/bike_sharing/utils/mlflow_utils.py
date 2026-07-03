@@ -23,13 +23,14 @@ def setup_mlflow() -> None:
     tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
     if not tracking_uri:
         raise RuntimeError(
-            "MLFLOW_TRACKING_URI is not set. "
-            "Add it to your .env file or environment variables."
+            "MLFLOW_TRACKING_URI is not set. Add it to your .env file or environment variables."
         )
 
     import mlflow
+
     mlflow.set_tracking_uri(tracking_uri)
 
     import logging
+
     logging.getLogger("azure").setLevel(logging.WARNING)
     logging.getLogger("azureml").setLevel(logging.WARNING)

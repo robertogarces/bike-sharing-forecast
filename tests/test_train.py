@@ -14,9 +14,9 @@ def test_compute_metrics_returns_required_keys():
 
     result = compute_metrics(y_true, y_pred)
 
-    assert "rmse"  in result
+    assert "rmse" in result
     assert "rmsle" in result
-    assert "r2"    in result
+    assert "r2" in result
 
 
 def test_compute_metrics_perfect_prediction():
@@ -29,9 +29,9 @@ def test_compute_metrics_perfect_prediction():
 
     result = compute_metrics(y_true, y_pred)
 
-    assert result["rmse"]  == pytest.approx(0.0)
+    assert result["rmse"] == pytest.approx(0.0)
     assert result["rmsle"] == pytest.approx(0.0)
-    assert result["r2"]    == pytest.approx(1.0)
+    assert result["r2"] == pytest.approx(1.0)
 
 
 def test_compute_metrics_clips_negative_predictions():
@@ -54,7 +54,7 @@ def test_compute_metrics_rmse_is_positive():
     RMSE should always be a positive number regardless of prediction direction.
     """
     y_true = np.array([100, 200, 150, 300])
-    y_pred = np.array([50,  250, 100, 350])
+    y_pred = np.array([50, 250, 100, 350])
 
     result = compute_metrics(y_true, y_pred)
 

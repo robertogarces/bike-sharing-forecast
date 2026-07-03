@@ -70,8 +70,8 @@ def compute_rolling_performance(joined: pd.DataFrame, n_hours: int) -> dict:
     metrics = compute_metrics(recent["actual_total"].values, recent["pred_total"].values)
 
     return {
-        "timestamp":  datetime.now().isoformat(),
-        "n_hours":    n_hours,
+        "timestamp": datetime.now().isoformat(),
+        "n_hours": n_hours,
         "n_resolved": len(recent),
         **metrics,
     }
@@ -97,16 +97,16 @@ def append_performance_record(summary: dict, history_path: Path) -> None:
 
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
-    raw_dir       = Path(cfg.paths.raw_dir)
-    pred_path     = Path(cfg.paths.predictions_path)
+    raw_dir = Path(cfg.paths.raw_dir)
+    pred_path = Path(cfg.paths.predictions_path)
     artifacts_dir = Path(cfg.paths.artifacts_dir)
-    history_path  = artifacts_dir / "monitoring" / "performance_history.csv"
-    n_hours       = cfg.monitoring.n_hours
+    history_path = artifacts_dir / "monitoring" / "performance_history.csv"
+    n_hours = cfg.monitoring.n_hours
 
     # ── Load & join ───────────────────────────────────────────────────────────
     logger.info("Loading predictions and actuals")
     predictions = load_predictions(pred_path)
-    actuals     = load_actuals(raw_dir, cfg.paths.input_file)
+    actuals = load_actuals(raw_dir, cfg.paths.input_file)
 
     joined = join_predictions_with_actuals(predictions, actuals)
     logger.info(f"{len(joined):,}/{len(predictions):,} predictions have a known actual")
@@ -131,13 +131,15 @@ def main(cfg: DictConfig) -> None:
     setup_mlflow()
     mlflow.set_experiment(cfg.project)
     with mlflow.start_run(run_name="performance_monitoring"):
-        mlflow.log_metrics({
-            "rmse":       summary["rmse"],
-            "mae":        summary["mae"],
-            "rmsle":      summary["rmsle"],
-            "r2":         summary["r2"],
-            "n_resolved": summary["n_resolved"],
-        })
+        mlflow.log_metrics(
+            {
+                "rmse": summary["rmse"],
+                "mae": summary["mae"],
+                "rmsle": summary["rmsle"],
+                "r2": summary["r2"],
+                "n_resolved": summary["n_resolved"],
+            }
+        )
         mlflow.log_param("n_hours", summary["n_hours"])
         logger.info("Logged live performance metrics to MLflow")
 

@@ -9,7 +9,9 @@ from omegaconf import DictConfig
 logger = logging.getLogger(__name__)
 
 
-def build_lag_features(df: pd.DataFrame, lags: list[int], rolling_windows: list[int]) -> pd.DataFrame:
+def build_lag_features(
+    df: pd.DataFrame, lags: list[int], rolling_windows: list[int]
+) -> pd.DataFrame:
     """
     Compute lag and rolling average features from the target column `cnt`.
 
@@ -47,7 +49,9 @@ def build_lag_features(df: pd.DataFrame, lags: list[int], rolling_windows: list[
     return df
 
 
-def build_calendar_features(df: pd.DataFrame, drop_cols: list[str], min_date: pd.Timestamp) -> pd.DataFrame:
+def build_calendar_features(
+    df: pd.DataFrame, drop_cols: list[str], min_date: pd.Timestamp
+) -> pd.DataFrame:
     """
     Engineer calendar and interaction features from raw time columns.
 
@@ -82,8 +86,8 @@ def build_calendar_features(df: pd.DataFrame, drop_cols: list[str], min_date: pd
     df = df.copy()
 
     # Cyclic encoding
-    df["hr_sin"]   = np.sin(2 * np.pi * df["hr"]   / 24)
-    df["hr_cos"]   = np.cos(2 * np.pi * df["hr"]   / 24)
+    df["hr_sin"] = np.sin(2 * np.pi * df["hr"] / 24)
+    df["hr_cos"] = np.cos(2 * np.pi * df["hr"] / 24)
     df["mnth_sin"] = np.sin(2 * np.pi * df["mnth"] / 12)
     df["mnth_cos"] = np.cos(2 * np.pi * df["mnth"] / 12)
 
@@ -96,8 +100,7 @@ def build_calendar_features(df: pd.DataFrame, drop_cols: list[str], min_date: pd
 
     # Rush hour flag: commuter peaks on working days
     df["is_rush_hour"] = (
-        (df["hr"].between(7, 9) | df["hr"].between(17, 19)) &
-        (df["workingday"] == 1)
+        (df["hr"].between(7, 9) | df["hr"].between(17, 19)) & (df["workingday"] == 1)
     ).astype(int)
 
     # Continuous growth trend — relative to full dataset min_date
@@ -142,14 +145,14 @@ def build_target(df: pd.DataFrame, target: str) -> pd.DataFrame:
 
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
-    raw_dir       = Path(cfg.paths.raw_dir)
+    raw_dir = Path(cfg.paths.raw_dir)
     processed_dir = Path(cfg.paths.processed_dir)
     processed_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Load ──────────────────────────────────────────────────────────────────
     logger.info("Loading raw data")
     df = pd.read_csv(raw_dir / cfg.paths.input_file)
-    df["dteday"]   = pd.to_datetime(df["dteday"])
+    df["dteday"] = pd.to_datetime(df["dteday"])
     df["datetime"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
 
     # ── Lag features (on full df before split) ────────────────────────────────
@@ -162,34 +165,34 @@ def main(cfg: DictConfig) -> None:
 
     # ── Train / val split ─────────────────────────────────────────────────────
     cutoff = df["dteday"].quantile(cfg.features.split_ratio)
-    train  = df[df["dteday"] <= cutoff].copy()
-    val    = df[df["dteday"] >  cutoff].copy()
+    train = df[df["dteday"] <= cutoff].copy()
+    val = df[df["dteday"] > cutoff].copy()
     logger.info(f"Train: {len(train):,} rows | Val: {len(val):,} rows")
 
-# ── Calendar features ─────────────────────────────────────────────────────────
+    # ── Calendar features ─────────────────────────────────────────────────────────
     logger.info("Building calendar features")
     drop_cols = list(cfg.features.drop_cols)
-    min_date  = df["dteday"].min()
+    min_date = df["dteday"].min()
     train = build_calendar_features(train, drop_cols, min_date)
-    val   = build_calendar_features(val,   drop_cols, min_date)
+    val = build_calendar_features(val, drop_cols, min_date)
 
     # ── Targets ───────────────────────────────────────────────────────────────────
-    train["log_cnt"]        = np.log1p(train["cnt"])
+    train["log_cnt"] = np.log1p(train["cnt"])
     train["log_registered"] = np.log1p(train["registered"])
-    train["log_casual"]     = np.log1p(train["casual"])
+    train["log_casual"] = np.log1p(train["casual"])
 
-    val["log_cnt"]        = np.log1p(val["cnt"])
+    val["log_cnt"] = np.log1p(val["cnt"])
     val["log_registered"] = np.log1p(val["registered"])
-    val["log_casual"]     = np.log1p(val["casual"])
+    val["log_casual"] = np.log1p(val["casual"])
 
     # ── Drop NaN rows from train only ─────────────────────────────────────────
     before = len(train)
-    train  = train.dropna()
+    train = train.dropna()
     logger.info(f"Dropped {before - len(train):,} NaN rows from train (lag warmup)")
 
     # ── Save ──────────────────────────────────────────────────────────────────
     train.to_csv(processed_dir / "train.csv", index=False)
-    val.to_csv(processed_dir / "val.csv",     index=False)
+    val.to_csv(processed_dir / "val.csv", index=False)
     logger.info(f"Saved processed data to {processed_dir}")
 
 

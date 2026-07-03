@@ -18,6 +18,7 @@ from bike_sharing.utils.mlflow_utils import setup_mlflow
 
 logger = logging.getLogger(__name__)
 
+
 def plot_shap_summary(model: lgb.Booster, X_val: pd.DataFrame, path: Path) -> None:
     """
     SHAP summary plot showing feature importance and impact direction.
@@ -30,7 +31,7 @@ def plot_shap_summary(model: lgb.Booster, X_val: pd.DataFrame, path: Path) -> No
     and account for feature interactions, making them a more honest
     measure of each feature's contribution.
     """
-    explainer   = shap.TreeExplainer(model)
+    explainer = shap.TreeExplainer(model)
     shap_values = explainer.shap_values(X_val)
 
     fig, ax = plt.subplots(figsize=(10, 8))
@@ -39,6 +40,7 @@ def plot_shap_summary(model: lgb.Booster, X_val: pd.DataFrame, path: Path) -> No
     plt.savefig(path, dpi=150, bbox_inches="tight")
     plt.close()
     logger.info(f"Saved SHAP summary plot to {path}")
+
 
 def plot_residuals(y_true: np.ndarray, y_pred: np.ndarray, path: Path) -> None:
     """
@@ -70,7 +72,14 @@ def plot_actual_vs_predicted(y_true: np.ndarray, y_pred: np.ndarray, path: Path)
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.scatter(y_true, y_pred, alpha=0.2, s=10)
     max_val = max(y_true.max(), y_pred.max())
-    ax.plot([0, max_val], [0, max_val], color="red", linestyle="--", linewidth=1, label="Perfect prediction")
+    ax.plot(
+        [0, max_val],
+        [0, max_val],
+        color="red",
+        linestyle="--",
+        linewidth=1,
+        label="Perfect prediction",
+    )
     ax.set_title("Actual vs Predicted")
     ax.set_xlabel("Actual cnt")
     ax.set_ylabel("Predicted cnt")
@@ -81,14 +90,16 @@ def plot_actual_vs_predicted(y_true: np.ndarray, y_pred: np.ndarray, path: Path)
     logger.info(f"Saved actual vs predicted plot to {path}")
 
 
-def plot_demand_over_time(y_true: np.ndarray, y_pred: np.ndarray, dates: pd.Series, path: Path) -> None:
+def plot_demand_over_time(
+    y_true: np.ndarray, y_pred: np.ndarray, dates: pd.Series, path: Path
+) -> None:
     """
     Actual vs predicted demand over the validation period.
     Shows how well the model tracks the temporal pattern of demand,
     including peaks, troughs, and seasonal effects.
     """
     fig, ax = plt.subplots(figsize=(14, 4))
-    ax.plot(dates, y_true, label="Actual",    alpha=0.7, linewidth=0.8)
+    ax.plot(dates, y_true, label="Actual", alpha=0.7, linewidth=0.8)
     ax.plot(dates, y_pred, label="Predicted", alpha=0.7, linewidth=0.8)
     ax.set_title("Actual vs Predicted Demand — Validation Period")
     ax.set_xlabel("Date")
@@ -110,18 +121,18 @@ def main(cfg: DictConfig) -> None:
     val = pd.read_csv(processed_dir / "val.csv")
     val["dteday"] = pd.to_datetime(val["dteday"])
 
-    X_val     = val[FEATURES]
+    X_val = val[FEATURES]
     y_val_cnt = val["cnt"].values
 
     # ── Load models ───────────────────────────────────────────────────────────
     logger.info("Loading models from artifacts")
     model_registered = lgb.Booster(model_file=Path(cfg.paths.models_dir) / "lgbm_registered.txt")
-    model_casual     = lgb.Booster(model_file=Path(cfg.paths.models_dir) / "lgbm_casual.txt")
+    model_casual = lgb.Booster(model_file=Path(cfg.paths.models_dir) / "lgbm_casual.txt")
 
     # ── Predict ───────────────────────────────────────────────────────────────
     pred_registered = np.expm1(model_registered.predict(X_val))
-    pred_casual     = np.expm1(model_casual.predict(X_val))
-    pred_combined   = np.clip(pred_registered + pred_casual, 0, None)
+    pred_casual = np.expm1(model_casual.predict(X_val))
+    pred_combined = np.clip(pred_registered + pred_casual, 0, None)
 
     # ── Metrics ───────────────────────────────────────────────────────────────
     metrics = compute_metrics(y_val_cnt, pred_combined)
@@ -140,29 +151,22 @@ def main(cfg: DictConfig) -> None:
 
     # ── Plots ─────────────────────────────────────────────────────────────────
     logger.info("Generating evaluation plots")
-    plot_residuals(
-        y_val_cnt, pred_combined,
-        Path(cfg.paths.evaluation_dir) / "residuals.png"
-    )
+    plot_residuals(y_val_cnt, pred_combined, Path(cfg.paths.evaluation_dir) / "residuals.png")
     plot_actual_vs_predicted(
-        y_val_cnt, pred_combined,
-        Path(cfg.paths.evaluation_dir) / "actual_vs_predicted.png"
+        y_val_cnt, pred_combined, Path(cfg.paths.evaluation_dir) / "actual_vs_predicted.png"
     )
     plot_demand_over_time(
-        y_val_cnt, pred_combined,
+        y_val_cnt,
+        pred_combined,
         val["dteday"],
-        Path(cfg.paths.evaluation_dir) / "demand_over_time.png"
+        Path(cfg.paths.evaluation_dir) / "demand_over_time.png",
     )
 
     logger.info("Generating SHAP plots")
     plot_shap_summary(
-        model_registered, X_val,
-        Path(cfg.paths.evaluation_dir) / "shap_registered.png"
+        model_registered, X_val, Path(cfg.paths.evaluation_dir) / "shap_registered.png"
     )
-    plot_shap_summary(
-        model_casual, X_val,
-        Path(cfg.paths.evaluation_dir) / "shap_casual.png"
-)
+    plot_shap_summary(model_casual, X_val, Path(cfg.paths.evaluation_dir) / "shap_casual.png")
 
     # ── Log to MLflow ─────────────────────────────────────────────────────────
     setup_mlflow()
