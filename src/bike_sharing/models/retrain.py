@@ -1,5 +1,4 @@
 import logging
-import subprocess
 from pathlib import Path
 from datetime import datetime
 
@@ -13,17 +12,10 @@ import pandas as pd
 from mlflow.tracking import MlflowClient
 from bike_sharing.data.validate_data import validate_data_quality
 from bike_sharing.models.train import compute_metrics, FEATURES
+from bike_sharing.utils.command_utils import run_command
 from bike_sharing.utils.mlflow_utils import setup_mlflow
 
 logger = logging.getLogger(__name__)
-
-
-def run_command(cmd: list[str]) -> None:
-    """
-    Run a shell command and raise if it fails.
-    """
-    logger.info(f"Running: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, capture_output=False)
 
 
 def should_retrain(drift_flag_path: Path, force: bool) -> bool:
@@ -120,6 +112,43 @@ def write_retrain_marker(hour_past_path: Path, marker_path: Path) -> None:
             indent=2,
         )
     logger.info(f"Retrain marker updated — data cutoff: {data_cutoff}")
+
+
+def write_retrain_outcome(outcome: dict, path: Path) -> None:
+    """
+    Persist the result of this retrain.py run — whether a retrain was
+    attempted, why not if it wasn't, and the promotion outcome if it was.
+
+    Written on every run via a try/finally in main(), regardless of which
+    gate the run exits at, so the weekly report always has something to
+    show (most weeks likely skip retraining entirely — that's the common
+    case, and today it's invisible without reading CI logs).
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(outcome, f, indent=2)
+    logger.info(f"Retrain outcome saved to {path}")
+
+
+def describe_drift_skip_reason(drift_flag_path: Path) -> str:
+    """
+    Human-readable reason retraining didn't proceed past the drift gate.
+
+    Mirrors should_retrain's branching but returns a message instead of a
+    bool — kept separate so should_retrain's signature/tests are untouched.
+    """
+    if not drift_flag_path.exists():
+        return "no drift flag found"
+
+    with open(drift_flag_path) as f:
+        state = json.load(f)
+
+    if "reason" in state:
+        return f"drift detection was skipped — {state['reason']}"
+
+    if state["drift_detected"]:
+        return "drift detected"
+    return f"no drift detected ({state['drift_share']:.0%} <= {state['threshold']:.0%})"
 
 
 def evaluate_production_pair(project: str, val_df: pd.DataFrame) -> float | None:
@@ -236,95 +265,130 @@ def main(cfg: DictConfig) -> None:
     drift_flag_path = artifacts_dir / "drift" / "drift_detected.json"
     marker_path = Path(cfg.paths.retrain_marker)
     hour_past_path = Path(cfg.paths.raw_dir) / cfg.paths.input_file
+    outcome_path = artifacts_dir / "monitoring" / "retrain_outcome.json"
     force = cfg.training.force_retrain
 
-    # ── Configure MLflow ──────────────────────────────────────────────────────
-    setup_mlflow()
+    # Written on every exit path (see the finally block below) — most weeks
+    # likely skip retraining entirely (no drift), which is otherwise
+    # invisible without reading CI logs.
+    outcome = {
+        "timestamp": datetime.now().isoformat(),
+        "retrain_attempted": False,
+        "skip_reason": None,
+        "data_quality_checked": False,
+        "data_quality_passed": None,
+        "data_quality_issues": [],
+        "new_rmse": None,
+        "prod_rmse": None,
+        "promoted": None,
+    }
 
-    # ── Check if retraining is needed ─────────────────────────────────────────
-    if not should_retrain(drift_flag_path, force):
-        return
+    try:
+        # ── Configure MLflow ──────────────────────────────────────────────────
+        setup_mlflow()
 
-    # ── Check enough new data has accumulated since the last retrain ──────────
-    # Even with drift, skip if too little fresh data arrived — retraining the
-    # full pipeline for a handful of new hours is not worth the cost/risk.
-    # force=True bypasses this guard, same as the drift check.
-    if not force:
-        new_hours = count_new_hours(hour_past_path, marker_path)
-        if new_hours is None:
-            logger.info("No retrain marker found — bootstrapping first retrain")
-        elif new_hours < cfg.training.min_new_hours:
-            logger.warning(
-                f"Only {new_hours}h of new data since last retrain "
-                f"(< {cfg.training.min_new_hours} required) — skipping retrain"
-            )
+        # ── Check if retraining is needed ─────────────────────────────────────
+        if not should_retrain(drift_flag_path, force):
+            outcome["skip_reason"] = describe_drift_skip_reason(drift_flag_path)
             return
+
+        # ── Check enough new data has accumulated since the last retrain ──────
+        # Even with drift, skip if too little fresh data arrived — retraining
+        # the full pipeline for a handful of new hours is not worth the
+        # cost/risk. force=True bypasses this guard, same as the drift check.
+        if not force:
+            new_hours = count_new_hours(hour_past_path, marker_path)
+            if new_hours is None:
+                logger.info("No retrain marker found — bootstrapping first retrain")
+            elif new_hours < cfg.training.min_new_hours:
+                logger.warning(
+                    f"Only {new_hours}h of new data since last retrain "
+                    f"(< {cfg.training.min_new_hours} required) — skipping retrain"
+                )
+                outcome["skip_reason"] = (
+                    f"insufficient new hours: {new_hours}/{cfg.training.min_new_hours} required"
+                )
+                return
+            else:
+                logger.info(
+                    f"{new_hours}h of new data since last retrain "
+                    f"(≥ {cfg.training.min_new_hours}) — proceeding"
+                )
+
+        # ── Validate data quality ───────────────────────────────────────────────
+        # Runs even with force=True — this isn't a "should we retrain" business
+        # decision like the two gates above, it's a safety check: retraining on
+        # corrupted data (a broken sensor, a schema change) makes the model
+        # worse, regardless of how confident we are that retraining is
+        # otherwise warranted.
+        hour_past_df = pd.read_csv(hour_past_path)
+        issues = validate_data_quality(
+            hour_past_df,
+            required_columns=list(cfg.validation.required_columns),
+            ranges={k: list(v) for k, v in cfg.validation.ranges.items()},
+        )
+        outcome["data_quality_checked"] = True
+        outcome["data_quality_issues"] = issues
+        if issues:
+            outcome["data_quality_passed"] = False
+            outcome["skip_reason"] = f"data quality validation failed: {issues}"
+            logger.error(f"Data quality check failed — aborting retrain: {issues}")
+            return
+        outcome["data_quality_passed"] = True
+        logger.info("Data quality check passed")
+
+        # ── Retrain pipeline ────────────────────────────────────────────────────
+        logger.info("Starting retraining pipeline")
+        outcome["retrain_attempted"] = True
+
+        run_command(["dvc", "unfreeze", "build_features"])
+        run_command(["dvc", "repro"])
+
+        # ── Promote if better ───────────────────────────────────────────────────
+        # Champion/challenger comparison on the SAME (current) val set: the new
+        # pair's RMSE comes from evaluate.py (metrics.json), and the production
+        # pair is re-scored on that same val.csv here — apples-to-apples.
+        client = MlflowClient()
+
+        # New (challenger) pair's RMSE — already computed by evaluate.py on the
+        # current val set during the dvc repro above.
+        metrics_path = Path(cfg.paths.artifacts_dir) / "evaluation" / "metrics.json"
+        with open(metrics_path) as f:
+            new_metrics = json.load(f)
+        new_rmse = new_metrics["rmse"]
+        outcome["new_rmse"] = new_rmse
+
+        # Production (champion) pair, re-scored on the current val set.
+        val_df = pd.read_csv(Path(cfg.paths.processed_dir) / "val.csv")
+        prod_rmse = evaluate_production_pair(cfg.project, val_df)
+        outcome["prod_rmse"] = prod_rmse
+
+        if prod_rmse is None:
+            logger.info(
+                f"Bootstrap promotion — new pair rmse: {new_rmse:.4f} (no production baseline)"
+            )
         else:
             logger.info(
-                f"{new_hours}h of new data since last retrain "
-                f"(≥ {cfg.training.min_new_hours}) — proceeding"
+                f"Champion/challenger on current val — "
+                f"new: {new_rmse:.4f} | production: {prod_rmse:.4f}"
             )
 
-    # ── Validate data quality ──────────────────────────────────────────────────
-    # Runs even with force=True — this isn't a "should we retrain" business
-    # decision like the two gates above, it's a safety check: retraining on
-    # corrupted data (a broken sensor, a schema change) makes the model worse,
-    # regardless of how confident we are that retraining is otherwise warranted.
-    hour_past_df = pd.read_csv(hour_past_path)
-    issues = validate_data_quality(
-        hour_past_df,
-        required_columns=list(cfg.validation.required_columns),
-        ranges={k: list(v) for k, v in cfg.validation.ranges.items()},
-    )
-    if issues:
-        logger.error(f"Data quality check failed — aborting retrain: {issues}")
-        return
-    logger.info("Data quality check passed")
+        promoted = promote_models_if_better(client, cfg.project, new_rmse, prod_rmse)
+        outcome["promoted"] = promoted
 
-    # ── Retrain pipeline ──────────────────────────────────────────────────────
-    logger.info("Starting retraining pipeline")
+        if promoted:
+            logger.info("New model pair promoted to Production")
+        else:
+            logger.warning("New model pair not promoted — previous Production pair retained")
 
-    run_command(["dvc", "unfreeze", "build_features"])
-    run_command(["dvc", "repro"])
+        run_command(["dvc", "freeze", "build_features"])
 
-    # ── Promote if better ─────────────────────────────────────────────────────
-    # Champion/challenger comparison on the SAME (current) val set: the new
-    # pair's RMSE comes from evaluate.py (metrics.json), and the production
-    # pair is re-scored on that same val.csv here — apples-to-apples.
-    client = MlflowClient()
+        # Advance the data boundary so the next run measures new data from here on.
+        write_retrain_marker(hour_past_path, marker_path)
 
-    # New (challenger) pair's RMSE — already computed by evaluate.py on the
-    # current val set during the dvc repro above.
-    metrics_path = Path(cfg.paths.artifacts_dir) / "evaluation" / "metrics.json"
-    with open(metrics_path) as f:
-        new_metrics = json.load(f)
-    new_rmse = new_metrics["rmse"]
-
-    # Production (champion) pair, re-scored on the current val set.
-    val_df = pd.read_csv(Path(cfg.paths.processed_dir) / "val.csv")
-    prod_rmse = evaluate_production_pair(cfg.project, val_df)
-
-    if prod_rmse is None:
-        logger.info(f"Bootstrap promotion — new pair rmse: {new_rmse:.4f} (no production baseline)")
-    else:
-        logger.info(
-            f"Champion/challenger on current val — "
-            f"new: {new_rmse:.4f} | production: {prod_rmse:.4f}"
-        )
-
-    promoted = promote_models_if_better(client, cfg.project, new_rmse, prod_rmse)
-
-    if promoted:
-        logger.info("New model pair promoted to Production")
-    else:
-        logger.warning("New model pair not promoted — previous Production pair retained")
-
-    run_command(["dvc", "freeze", "build_features"])
-
-    # Advance the data boundary so the next run measures new data from here on.
-    write_retrain_marker(hour_past_path, marker_path)
-
-    logger.info("Retraining complete")
+        logger.info("Retraining complete")
+    finally:
+        write_retrain_outcome(outcome, outcome_path)
 
 
 if __name__ == "__main__":
