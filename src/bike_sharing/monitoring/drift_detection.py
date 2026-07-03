@@ -177,6 +177,18 @@ def run_drift_report(
     drift_share = n_drifted / n_total
     drift_detected = drift_share > drift_threshold
 
+    # Per-column detail (which columns drifted, with what test/score) — lets a
+    # caller attribute drift to a specific column instead of only the
+    # aggregate share (e.g. output drift telling registered vs casual apart).
+    drift_by_column = {
+        col: {
+            "stattest": info["stattest_name"],
+            "score": round(info["drift_score"], 4),
+            "drifted": info["drift_detected"],
+        }
+        for col, info in result["metrics"][1]["result"]["drift_by_columns"].items()
+    }
+
     summary = {
         "timestamp": datetime.now().isoformat(),
         "n_features": n_total,
@@ -184,6 +196,7 @@ def run_drift_report(
         "drift_share": round(drift_share, 4),
         "drift_detected": drift_detected,
         "threshold": drift_threshold,
+        "drift_by_column": drift_by_column,
     }
 
     # Save drift flag
@@ -234,10 +247,11 @@ def main(cfg: DictConfig) -> None:
         numerical_features=DRIFT_FEATURES,
     )
 
+    drifted_features = [col for col, info in summary["drift_by_column"].items() if info["drifted"]]
     logger.info(
         f"Drift detected: {summary['drift_detected']} — "
         f"{summary['n_drifted']}/{summary['n_features']} features drifted "
-        f"({summary['drift_share']:.0%})"
+        f"({summary['drift_share']:.0%}) — drifted: {drifted_features}"
     )
 
     # ── Log to MLflow ─────────────────────────────────────────────────────────

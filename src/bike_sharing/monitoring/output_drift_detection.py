@@ -96,14 +96,24 @@ def main(cfg: DictConfig) -> None:
         save_html=False,
     )
 
+    drifted_columns = [col for col, info in summary["drift_by_column"].items() if info["drifted"]]
     logger.info(
         f"Output drift detected: {summary['drift_detected']} — "
         f"{summary['n_drifted']}/{summary['n_features']} prediction columns drifted "
-        f"({summary['drift_share']:.0%})"
+        f"({summary['drift_share']:.0%}) — drifted: {drifted_columns or 'none'}"
     )
 
     # ── Persist ───────────────────────────────────────────────────────────────
-    append_monitoring_record(summary, history_path)
+    # The history CSV needs a flat row — drift_by_column (nested, one entry
+    # per OUTPUT_COLUMNS) is replaced with a per-column boolean instead of
+    # being written as a stringified dict. Only 3 columns here, so this stays
+    # readable; input drift's 19-column case keeps the nested JSON snapshot
+    # instead of trying to flatten into a CSV.
+    flat_summary = {k: v for k, v in summary.items() if k != "drift_by_column"}
+    for col in OUTPUT_COLUMNS:
+        flat_summary[f"drifted_{col}"] = summary["drift_by_column"][col]["drifted"]
+
+    append_monitoring_record(flat_summary, history_path)
     logger.info(f"Output drift record appended to {history_path}")
 
     # ── Log to MLflow ─────────────────────────────────────────────────────────
@@ -114,6 +124,10 @@ def main(cfg: DictConfig) -> None:
             {
                 "n_drifted_columns": summary["n_drifted"],
                 "drift_share": summary["drift_share"],
+                **{
+                    f"drifted_{col}": int(info["drifted"])
+                    for col, info in summary["drift_by_column"].items()
+                },
             }
         )
         mlflow.log_param("drift_detected", summary["drift_detected"])
