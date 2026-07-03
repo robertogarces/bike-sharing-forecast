@@ -62,6 +62,22 @@ def test_create_github_issue_creates_when_existing_is_older_than_window(monkeypa
     assert any(c[:3] == ["gh", "issue", "create"] for c in calls)
 
 
+# ── _markdown_to_html ────────────────────────────────────────────────────────
+
+
+def test_markdown_to_html_converts_headers_and_bullets():
+    body = "## Section\n\n- one\n- two\n\nplain line"
+
+    result = alerting._markdown_to_html(body)
+
+    assert "<h2>Section</h2>" in result
+    assert "<ul>" in result
+    assert "<li>one</li>" in result
+    assert "<li>two</li>" in result
+    assert "</ul>" in result
+    assert "<p>plain line</p>" in result
+
+
 # ── send_email ───────────────────────────────────────────────────────────────
 
 
@@ -104,7 +120,8 @@ def test_send_email_sends_expected_message(monkeypatch):
     sent = smtp.sent_messages[0]
     assert sent["Subject"] == "Subject"
     assert sent["To"] == "target@example.com"
-    assert sent.get_payload(decode=True).decode().strip() == "Body text"
+    assert sent.get_content_type() == "text/html"
+    assert sent.get_payload(decode=True).decode().strip() == "<p>Body text</p>"
 
 
 def test_send_email_logs_and_continues_when_credentials_missing(monkeypatch):

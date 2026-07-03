@@ -1,3 +1,4 @@
+import html
 import json
 import logging
 import os
@@ -8,6 +9,40 @@ from email.mime.text import MIMEText
 from bike_sharing.utils.command_utils import run_command
 
 logger = logging.getLogger(__name__)
+
+
+def _markdown_to_html(body: str) -> str:
+    """
+    Convert the small markdown subset used in alert bodies (## headers, -
+    bullet lists, blank-line-separated paragraphs) into HTML — email clients
+    render plain-text markdown syntax literally instead of formatting it.
+    """
+    lines_html = []
+    in_list = False
+
+    def close_list():
+        nonlocal in_list
+        if in_list:
+            lines_html.append("</ul>")
+            in_list = False
+
+    for line in body.split("\n"):
+        if line.startswith("## "):
+            close_list()
+            lines_html.append(f"<h2>{html.escape(line[3:])}</h2>")
+        elif line.startswith("- "):
+            if not in_list:
+                lines_html.append("<ul>")
+                in_list = True
+            lines_html.append(f"<li>{html.escape(line[2:])}</li>")
+        elif line.strip() == "":
+            close_list()
+        else:
+            close_list()
+            lines_html.append(f"<p>{html.escape(line)}</p>")
+
+    close_list()
+    return "\n".join(lines_html)
 
 
 def create_github_issue(title: str, body: str, labels: list[str], dedup_hours: int = 24) -> None:
@@ -51,7 +86,7 @@ def send_email(subject: str, body: str, to: str) -> None:
         logger.error("SMTP_USERNAME/SMTP_PASSWORD not set — skipping email")
         return
 
-    msg = MIMEText(body)
+    msg = MIMEText(_markdown_to_html(body), "html")
     msg["Subject"] = subject
     msg["From"] = username
     msg["To"] = to
