@@ -66,7 +66,9 @@ def test_run_drift_report_saves_flag(sample_reference_csv):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_dir = Path(tmpdir)
-        run_drift_report(reference, current, output_dir, drift_threshold=0.5)
+        run_drift_report(
+            reference, current, output_dir, drift_threshold=0.5, numerical_features=DRIFT_FEATURES
+        )
 
         assert (output_dir / "drift_detected.json").exists()
 
@@ -81,7 +83,9 @@ def test_run_drift_report_flag_has_required_keys(sample_reference_csv):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_dir = Path(tmpdir)
-        summary = run_drift_report(reference, current, output_dir, drift_threshold=0.5)
+        summary = run_drift_report(
+            reference, current, output_dir, drift_threshold=0.5, numerical_features=DRIFT_FEATURES
+        )
 
         required_keys = [
             "timestamp",
@@ -105,10 +109,36 @@ def test_run_drift_report_no_drift_on_identical_data(sample_reference_csv):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_dir = Path(tmpdir)
-        summary = run_drift_report(reference, current, output_dir, drift_threshold=0.5)
+        summary = run_drift_report(
+            reference, current, output_dir, drift_threshold=0.5, numerical_features=DRIFT_FEATURES
+        )
 
         assert summary["drift_detected"] is False
         assert summary["drift_share"] == 0.0
+
+
+def test_run_drift_report_save_html_false_skips_html_file(sample_reference_csv):
+    """
+    save_html=False must never create drift_report.html — used for output
+    drift, which runs hourly and would otherwise flood MLflow/DagsHub
+    storage with a ~4MB file every hour.
+    """
+    reference = load_reference(sample_reference_csv, months=[1], min_reference_rows=1)
+    current = reference.tail(50).copy()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_dir = Path(tmpdir)
+        run_drift_report(
+            reference,
+            current,
+            output_dir,
+            drift_threshold=0.5,
+            numerical_features=DRIFT_FEATURES,
+            save_html=False,
+        )
+
+        assert not (output_dir / "drift_report.html").exists()
+        assert (output_dir / "drift_detected.json").exists()
 
 
 # ── load_reference: month filtering / widening / fallback ────────────────────

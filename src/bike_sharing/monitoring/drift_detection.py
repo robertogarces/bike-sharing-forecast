@@ -120,24 +120,33 @@ def run_drift_report(
     current: pd.DataFrame,
     output_dir: Path,
     drift_threshold: float,
+    numerical_features: list[str],
+    save_html: bool = True,
 ) -> dict:
     """
-    Run Evidently drift report and save HTML + JSON summary.
+    Run Evidently drift report and save a JSON summary (+ optionally HTML).
 
     Uses the Kolmogorov-Smirnov test for numerical features to detect
-    statistically significant distribution shifts between reference
-    (train set) and current (recent production) data.
+    statistically significant distribution shifts between reference and
+    current data. Shared between input-feature drift (weekly, ~20 columns,
+    HTML is useful for scanning many features at once) and output/prediction
+    drift (hourly, 3 columns, HTML would be regenerated every hour for no
+    real benefit — save_html=False skips it entirely).
 
     Parameters
     ----------
     reference : pd.DataFrame
-        Training data used as drift reference.
+        Reference data (e.g. training set, or an earlier production window).
     current : pd.DataFrame
-        Recent production data to compare against reference.
+        Recent data to compare against reference.
     output_dir : Path
         Directory to save the drift report and flag.
     drift_threshold : float
-        Fraction of drifted features above which retraining is triggered.
+        Fraction of drifted columns above which drift_detected is True.
+    numerical_features : list[str]
+        Columns to compare (must be present in both reference and current).
+    save_html : bool
+        Whether to render and save the full HTML report. Default True.
 
     Returns
     -------
@@ -146,7 +155,7 @@ def run_drift_report(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    column_mapping = ColumnMapping(numerical_features=DRIFT_FEATURES)
+    column_mapping = ColumnMapping(numerical_features=numerical_features)
 
     report = Report(metrics=[DataDriftPreset()])
     report.run(
@@ -155,10 +164,10 @@ def run_drift_report(
         column_mapping=column_mapping,
     )
 
-    # Save HTML report
-    html_path = output_dir / "drift_report.html"
-    report.save_html(str(html_path))
-    logger.info(f"Drift report saved to {html_path}")
+    if save_html:
+        html_path = output_dir / "drift_report.html"
+        report.save_html(str(html_path))
+        logger.info(f"Drift report saved to {html_path}")
 
     # Extract summary
     result = report.as_dict()
@@ -222,6 +231,7 @@ def main(cfg: DictConfig) -> None:
         current,
         drift_dir,
         drift_threshold=drift_threshold,
+        numerical_features=DRIFT_FEATURES,
     )
 
     logger.info(
