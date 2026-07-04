@@ -231,9 +231,10 @@ service providers disabled, and the online-endpoint create call masked the real 
 
 **Azure ML does not implement MLflow model aliases.** The production code uses `models:/<name>@production`,
 but Azure ML's MLflow-compatible API returns `404` for the alias endpoint. Models must be loaded by
-explicit version instead (`models:/<name>/<version>`), pinned via the `MODEL_VERSION` environment
-variable. Pinning a version is the correct choice for serving anyway — you want deliberate promotion,
-not silent jumps.
+explicit version instead (`models:/<name>/<version>`), pinned via the `MODEL_VERSION_REGISTERED` /
+`MODEL_VERSION_CASUAL` environment variables — one per model, since the production pair can be mixed.
+Pinning a version is the correct choice for serving anyway — you want deliberate promotion, not silent
+jumps.
 
 **`MLFLOW_TRACKING_URI` is not auto-injected into endpoint containers.** Training jobs get it for free,
 but online-endpoint containers do not — it must be set explicitly in `deployment.yaml` under
