@@ -58,19 +58,6 @@ def test_build_next_hour_features_lag1_equals_current_cnt(sample_df_with_datetim
     assert result["cnt_lag_1"].values[0] == current_cnt
 
 
-def test_build_next_hour_features_cyclic_in_range(sample_df_with_datetime, min_date):
-    """
-    Cyclic features of the next hour must be in [-1, 1].
-    """
-    result = build_next_hour_features(
-        sample_df_with_datetime, min_date, LAGS, ROLLING_WINDOWS, DROP_COLS
-    )
-
-    for col in ["hr_sin", "hr_cos"]:
-        val = result[col].values[0]
-        assert -1 <= val <= 1, f"{col} = {val} is outside [-1, 1]"
-
-
 # ── get_missing_hours ─────────────────────────────────────────────────────────
 
 

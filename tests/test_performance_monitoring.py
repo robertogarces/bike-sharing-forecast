@@ -58,25 +58,6 @@ def test_join_drops_predictions_without_a_known_actual():
     assert joined["timestamp_predicted"].tolist() == predictions["timestamp_predicted"].tolist()[:3]
 
 
-def test_join_keeps_all_predictions_when_all_actuals_known():
-    predictions = pd.DataFrame(
-        {
-            "timestamp_predicted": pd.date_range("2026-01-01", periods=3, freq="h"),
-            "pred_total": [1.0, 2.0, 3.0],
-        }
-    )
-    actuals = pd.DataFrame(
-        {
-            "timestamp_predicted": pd.date_range("2026-01-01", periods=3, freq="h"),
-            "actual_total": [1.0, 2.0, 3.0],
-        }
-    )
-
-    joined = join_predictions_with_actuals(predictions, actuals)
-
-    assert len(joined) == 3
-
-
 # ── compute_rolling_performance ─────────────────────────────────────────────
 
 

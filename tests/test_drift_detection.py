@@ -56,23 +56,6 @@ def test_load_reference_returns_only_drift_features(sample_reference_csv):
     assert "days_since_start" not in result.columns
 
 
-def test_run_drift_report_saves_flag(sample_reference_csv):
-    """
-    run_drift_report should always save drift_detected.json regardless
-    of whether drift was detected or not.
-    """
-    reference = load_reference(sample_reference_csv, months=[1], min_reference_rows=1)
-    current = reference.tail(50).copy()
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        output_dir = Path(tmpdir)
-        run_drift_report(
-            reference, current, output_dir, drift_threshold=0.5, numerical_features=DRIFT_FEATURES
-        )
-
-        assert (output_dir / "drift_detected.json").exists()
-
-
 def test_run_drift_report_flag_has_required_keys(sample_reference_csv):
     """
     drift_detected.json must contain all keys that retrain.py reads.

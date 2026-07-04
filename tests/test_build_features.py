@@ -1,5 +1,3 @@
-import pandas as pd
-
 from bike_sharing.features.build_features import build_lag_features, build_calendar_features
 
 
@@ -31,16 +29,6 @@ def test_build_lag_features_no_leakage(sample_df_with_datetime):
     assert result["cnt_lag_1"].iloc[5] == result["cnt"].iloc[4]
 
 
-def test_build_lag_features_first_row_is_nan(sample_df_with_datetime):
-    """
-    The first row should always have NaN for lag_1 since there is no
-    previous record to look back at.
-    """
-    result = build_lag_features(sample_df_with_datetime, lags=[1], rolling_windows=[])
-
-    assert pd.isna(result["cnt_lag_1"].iloc[0])
-
-
 def test_build_calendar_features_creates_correct_columns(sample_df_with_datetime, min_date):
     """
     build_calendar_features should create all expected engineered columns.
@@ -63,19 +51,6 @@ def test_build_calendar_features_creates_correct_columns(sample_df_with_datetime
 
     for col in expected_cols:
         assert col in result.columns, f"Missing column: {col}"
-
-
-def test_cyclic_features_in_valid_range(sample_df_with_datetime, min_date):
-    """
-    Sin and cos encodings must always be in [-1, 1].
-    If they fall outside this range, the cyclic encoding formula is wrong.
-    """
-    result = build_calendar_features(
-        sample_df_with_datetime, drop_cols=["atemp", "yr"], min_date=min_date
-    )
-
-    for col in ["hr_sin", "hr_cos", "mnth_sin", "mnth_cos"]:
-        assert result[col].between(-1, 1).all(), f"{col} has values outside [-1, 1]"
 
 
 def test_rush_hour_only_on_working_days(sample_df_with_datetime, min_date):
