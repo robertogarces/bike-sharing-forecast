@@ -33,13 +33,19 @@ def load_simulation_state(state_path: Path) -> dict:
 def build_next_hour_features(
     past: pd.DataFrame,
     min_date: pd.Timestamp,
+    lags: list[int],
+    rolling_windows: list[int],
+    drop_cols: list[str],
 ) -> pd.DataFrame:
     """
     Build the feature vector for the next hour prediction.
 
-    Takes the full past dataset, applies the production feature pipeline,
-    and returns a single-row DataFrame representing the next hour after
-    the last available record.
+    Appends a placeholder row for the next hour (dteday/hr known; cnt/
+    casual/registered unknown) and runs it through the same
+    build_lag_features/build_calendar_features pipeline used for training —
+    lag and calendar features come from those functions, not a hand-written
+    reimplementation that could silently diverge (e.g. a new lag added to
+    training but forgotten here).
 
     Parameters
     ----------
@@ -47,6 +53,12 @@ def build_next_hour_features(
         Full past dataset sorted chronologically.
     min_date : pd.Timestamp
         Earliest date in the full dataset for days_since_start computation.
+    lags : list[int]
+        Same lag config used for training.
+    rolling_windows : list[int]
+        Same rolling window config used for training.
+    drop_cols : list[str]
+        Same drop_cols config used for training.
 
     Returns
     -------
@@ -55,52 +67,24 @@ def build_next_hour_features(
     """
     past = past.copy()
     past = reconstruct_datetime(past)
+    past = past.sort_values("datetime").reset_index(drop=True)
 
-    # Build lag features on full past history
-    past = build_lag_features(past, lags=[1, 2, 3, 8, 24, 48, 72, 168], rolling_windows=[24, 168])
-
-    # Build calendar features
-    past = build_calendar_features(past, drop_cols=["atemp", "yr"], min_date=min_date)
-
-    # Get last available row — this is "current hour"
-    current = past.iloc[-1].copy()
-
-    # Next hour datetime
+    current = past.iloc[-1]
     next_dt = current["datetime"] + pd.Timedelta(hours=1)
-    next_hr = next_dt.hour
-    next_day = next_dt.normalize()
 
-    # Build next hour row by shifting lag features
     next_row = current.copy()
     next_row["datetime"] = next_dt
-    next_row["dteday"] = next_day
-    next_row["hr"] = next_hr
+    next_row["dteday"] = next_dt.normalize()
+    next_row["hr"] = next_dt.hour
+    next_row["cnt"] = np.nan
+    next_row["casual"] = np.nan
+    next_row["registered"] = np.nan
 
-    # Shift lags — lag_1 of next hour = cnt of current hour, etc.
-    next_row["cnt_lag_1"] = current["cnt"]
-    next_row["cnt_lag_2"] = current["cnt_lag_1"]
-    next_row["cnt_lag_3"] = current["cnt_lag_2"]
-    next_row["cnt_lag_8"] = past.iloc[-8]["cnt"] if len(past) >= 8 else np.nan
-    next_row["cnt_lag_24"] = past.iloc[-24]["cnt"] if len(past) >= 24 else np.nan
-    next_row["cnt_lag_48"] = past.iloc[-48]["cnt"] if len(past) >= 48 else np.nan
-    next_row["cnt_lag_72"] = past.iloc[-72]["cnt"] if len(past) >= 72 else np.nan
-    next_row["cnt_lag_168"] = past.iloc[-168]["cnt"] if len(past) >= 168 else np.nan
+    extended = pd.concat([past, pd.DataFrame([next_row])], ignore_index=True)
+    extended = build_lag_features(extended, lags=lags, rolling_windows=rolling_windows)
+    extended = build_calendar_features(extended, drop_cols=drop_cols, min_date=min_date)
 
-    next_row["cnt_rolling_mean_24"] = past["cnt"].iloc[-24:].mean()
-    next_row["cnt_rolling_mean_168"] = past["cnt"].iloc[-168:].mean()
-
-    # Update cyclic and calendar features for next hour
-    next_row["hr_sin"] = np.sin(2 * np.pi * next_hr / 24)
-    next_row["hr_cos"] = np.cos(2 * np.pi * next_hr / 24)
-    next_row["hr_workday"] = next_hr * current["workingday"]
-    next_row["hr_weekend"] = next_hr * (1 - current["workingday"])
-    next_row["hr_x_season"] = next_hr * current["season"]
-    next_row["is_rush_hour"] = int(
-        (7 <= next_hr <= 9 or 17 <= next_hr <= 19) and current["workingday"] == 1
-    )
-    next_row["days_since_start"] = (next_day - min_date).days
-
-    return pd.DataFrame([next_row])
+    return extended.iloc[[-1]]
 
 
 def append_prediction(pred_row: dict, pred_path: Path) -> None:
@@ -285,7 +269,13 @@ def run(cfg: DictConfig) -> None:
     # ── Build features ────────────────────────────────────────────────────────
     logger.info("Building features for next hour")
     min_date = past["dteday"].min()
-    next_row = build_next_hour_features(past, min_date)
+    next_row = build_next_hour_features(
+        past,
+        min_date,
+        lags=list(cfg.features.lags),
+        rolling_windows=list(cfg.features.rolling_windows),
+        drop_cols=list(cfg.features.drop_cols),
+    )
     X = next_row[FEATURES]
 
     # ── Backfill missing predictions ──────────────────────────────────────────
@@ -302,7 +292,13 @@ def run(cfg: DictConfig) -> None:
                 logger.warning(f"Not enough history for backfill at {target_dt} — skipping")
                 continue
 
-            next_row_bf = build_next_hour_features(past_slice, min_date)
+            next_row_bf = build_next_hour_features(
+                past_slice,
+                min_date,
+                lags=list(cfg.features.lags),
+                rolling_windows=list(cfg.features.rolling_windows),
+                drop_cols=list(cfg.features.drop_cols),
+            )
             X_bf = next_row_bf[FEATURES]
 
             pred_registered_bf = float(np.expm1(model_registered.predict(X_bf))[0])
