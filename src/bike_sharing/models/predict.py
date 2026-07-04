@@ -12,6 +12,7 @@ from omegaconf import DictConfig
 
 from bike_sharing.features.build_features import build_lag_features, build_calendar_features
 from bike_sharing.models.train import FEATURES
+from bike_sharing.utils.datetime_utils import reconstruct_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,7 @@ def build_next_hour_features(
         Single-row DataFrame with all features for the next hour.
     """
     past = past.copy()
-    past["dteday"] = pd.to_datetime(past["dteday"])
-    past["datetime"] = past["dteday"] + pd.to_timedelta(past["hr"], unit="h")
+    past = reconstruct_datetime(past)
 
     # Build lag features on full past history
     past = build_lag_features(past, lags=[1, 2, 3, 8, 24, 48, 72, 168], rolling_windows=[24, 168])
@@ -170,8 +170,7 @@ def get_missing_hours(
         return []
 
     past = past.copy()
-    past["dteday"] = pd.to_datetime(past["dteday"])
-    past["datetime"] = past["dteday"] + pd.to_timedelta(past["hr"], unit="h")
+    past = reconstruct_datetime(past)
 
     # Only look for gaps after the last existing prediction
     last_predicted = pd.to_datetime(existing["timestamp_predicted"], format="ISO8601").max()
@@ -214,8 +213,7 @@ def get_fallback_prediction(past: pd.DataFrame, target_dt: pd.Timestamp) -> dict
         once trustworthy data returns.
     """
     past = past.copy()
-    past["dteday"] = pd.to_datetime(past["dteday"])
-    past["datetime"] = past["dteday"] + pd.to_timedelta(past["hr"], unit="h")
+    past = reconstruct_datetime(past)
 
     lookback_dt = target_dt - pd.Timedelta(hours=168)
     row = past[past["datetime"] == lookback_dt]
@@ -252,7 +250,7 @@ def run(cfg: DictConfig) -> None:
     # ── Load past data ────────────────────────────────────────────────────────
     logger.info("Loading past data")
     past = pd.read_csv(raw_dir / cfg.paths.input_file)
-    past["dteday"] = pd.to_datetime(past["dteday"])
+    past = reconstruct_datetime(past)
 
     last_record = past.sort_values(["dteday", "hr"]).iloc[-1]
     current_dt = pd.to_datetime(last_record["dteday"]) + pd.Timedelta(hours=int(last_record["hr"]))
@@ -298,8 +296,6 @@ def run(cfg: DictConfig) -> None:
 
         for target_dt in missing_hours:
             # Build past slice up to the hour before target_dt
-            past["dteday"] = pd.to_datetime(past["dteday"])
-            past["datetime"] = past["dteday"] + pd.to_timedelta(past["hr"], unit="h")
             past_slice = past[past["datetime"] < target_dt].copy()
 
             if len(past_slice) < 168:

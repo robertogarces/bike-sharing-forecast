@@ -10,6 +10,7 @@ from omegaconf import DictConfig
 from bike_sharing.models.train import compute_metrics
 from bike_sharing.utils.mlflow_utils import setup_mlflow
 from bike_sharing.utils.monitoring_utils import append_monitoring_record
+from bike_sharing.utils.datetime_utils import reconstruct_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ def load_actuals(raw_dir: Path, input_file: str) -> pd.DataFrame:
     since both need to match predictions.csv's timestamp_predicted exactly.
     """
     df = pd.read_csv(raw_dir / input_file, parse_dates=["dteday"])
-    df["timestamp_predicted"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
+    df = reconstruct_datetime(df, column="timestamp_predicted")
     return df[["timestamp_predicted", "cnt"]].rename(columns={"cnt": "actual_total"})
 
 

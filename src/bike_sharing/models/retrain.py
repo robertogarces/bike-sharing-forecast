@@ -13,6 +13,7 @@ from mlflow.tracking import MlflowClient
 from bike_sharing.data.validate_data import validate_data_quality
 from bike_sharing.models.train import compute_metrics, FEATURES
 from bike_sharing.utils.command_utils import run_command
+from bike_sharing.utils.datetime_utils import reconstruct_datetime
 from bike_sharing.utils.mlflow_utils import setup_mlflow
 
 logger = logging.getLogger(__name__)
@@ -81,8 +82,7 @@ def count_new_hours(hour_past_path: Path, marker_path: Path) -> int | None:
     cutoff = pd.to_datetime(marker["data_cutoff"])
 
     df = pd.read_csv(hour_past_path)
-    df["dteday"] = pd.to_datetime(df["dteday"])
-    df["datetime"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
+    df = reconstruct_datetime(df)
 
     return int((df["datetime"] > cutoff).sum())
 
@@ -97,8 +97,7 @@ def write_retrain_marker(hour_past_path: Path, marker_path: Path) -> None:
     already spent, so the boundary should advance to avoid re-running next week.
     """
     df = pd.read_csv(hour_past_path)
-    df["dteday"] = pd.to_datetime(df["dteday"])
-    df["datetime"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
+    df = reconstruct_datetime(df)
     data_cutoff = df["datetime"].max()
 
     marker_path.parent.mkdir(parents=True, exist_ok=True)

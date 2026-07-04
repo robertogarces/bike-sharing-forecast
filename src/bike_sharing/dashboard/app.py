@@ -4,6 +4,8 @@ import streamlit as st
 import plotly.graph_objects as go
 from pathlib import Path
 
+from bike_sharing.utils.datetime_utils import reconstruct_datetime
+
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Bike Sharing — Operations Dashboard",
@@ -35,7 +37,7 @@ def load_actuals() -> pd.DataFrame:
     if not PAST.exists():
         return pd.DataFrame()
     df = pd.read_csv(PAST, parse_dates=["dteday"])
-    df["datetime"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
+    df = reconstruct_datetime(df)
     return df[["datetime", "cnt"]].rename(
         columns={"datetime": "timestamp_predicted", "cnt": "actual_total"}
     )

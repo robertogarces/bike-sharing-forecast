@@ -14,6 +14,7 @@ from evidently.pipeline.column_mapping import ColumnMapping
 from bike_sharing.models.train import FEATURES
 from bike_sharing.utils.mlflow_utils import setup_mlflow
 from bike_sharing.utils.monitoring_utils import append_monitoring_record
+from bike_sharing.utils.datetime_utils import reconstruct_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -99,8 +100,7 @@ def load_current(
     from bike_sharing.features.build_features import build_lag_features, build_calendar_features
 
     df = pd.read_csv(raw_dir / input_file)
-    df["dteday"] = pd.to_datetime(df["dteday"])
-    df["datetime"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
+    df = reconstruct_datetime(df)
 
     df = build_lag_features(
         df,

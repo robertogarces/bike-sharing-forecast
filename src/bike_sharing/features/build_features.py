@@ -6,6 +6,8 @@ import pandas as pd
 import hydra
 from omegaconf import DictConfig
 
+from bike_sharing.utils.datetime_utils import reconstruct_datetime
+
 logger = logging.getLogger(__name__)
 
 
@@ -152,8 +154,7 @@ def main(cfg: DictConfig) -> None:
     # ── Load ──────────────────────────────────────────────────────────────────
     logger.info("Loading raw data")
     df = pd.read_csv(raw_dir / cfg.paths.input_file)
-    df["dteday"] = pd.to_datetime(df["dteday"])
-    df["datetime"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
+    df = reconstruct_datetime(df)
 
     # ── Lag features (on full df before split) ────────────────────────────────
     logger.info("Building lag features")

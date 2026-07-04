@@ -8,6 +8,7 @@ import pandas as pd
 from omegaconf import DictConfig
 
 from bike_sharing.data.validate_data import validate_data_quality
+from bike_sharing.utils.datetime_utils import reconstruct_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ def move_revealed_records(
     future["dteday"] = pd.to_datetime(future["dteday"]).dt.normalize()
 
     # Build datetime for comparison
-    future["datetime"] = future["dteday"] + pd.to_timedelta(future["hr"], unit="h")
+    future = reconstruct_datetime(future)
     now_ts = pd.Timestamp(now)
 
     revealed = future[future["datetime"] <= now_ts].copy()
