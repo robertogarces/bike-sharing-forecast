@@ -2,6 +2,7 @@ import json
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
+import hydra
 from pathlib import Path
 
 from bike_sharing.utils.datetime_utils import reconstruct_datetime
@@ -14,11 +15,17 @@ st.set_page_config(
 )
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
+# Streamlit (not Hydra) is the entry point here, so we use Hydra's compose API
+# instead of @hydra.main — it builds the same config without taking over
+# argument parsing or the process's control flow.
 ROOT = Path(__file__).parents[3]
-PREDICTIONS = ROOT / "data" / "predictions" / "predictions.csv"
-PAST = ROOT / "data" / "raw" / "hour_past.csv"
-METRICS = ROOT / "artifacts" / "evaluation" / "metrics.json"
-STATE = ROOT / "data" / "simulation_state.json"
+with hydra.initialize(config_path="../../../configs", version_base=None):
+    cfg = hydra.compose(config_name="config")
+
+PREDICTIONS = ROOT / cfg.paths.predictions_path
+PAST = ROOT / cfg.paths.raw_dir / cfg.paths.input_file
+METRICS = ROOT / cfg.paths.evaluation_dir / "metrics.json"
+STATE = ROOT / cfg.paths.simulation_state
 
 
 # ── Load data ─────────────────────────────────────────────────────────────────
