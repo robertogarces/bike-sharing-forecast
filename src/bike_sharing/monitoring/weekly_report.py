@@ -40,14 +40,14 @@ def _format_retrain_section(retrain_outcome: dict | None) -> str:
         return "## Retraining\n\nNot available yet — retrain.py has not produced an outcome."
 
     if not retrain_outcome["retrain_attempted"]:
-        return "\n".join(
-            [
-                "## Retraining",
-                "",
-                "- Attempted: No",
-                f"- Reason: {retrain_outcome['skip_reason']}",
-            ]
-        )
+        lines = [
+            "## Retraining",
+            "",
+            "- Attempted: No",
+            f"- Reason: {retrain_outcome['skip_reason']}",
+        ]
+        _append_performance_line(lines, retrain_outcome)
+        return "\n".join(lines)
 
     lines = [
         "## Retraining",
@@ -63,7 +63,16 @@ def _format_retrain_section(retrain_outcome: dict | None) -> str:
         lines.append(f"- Production model RMSE: {retrain_outcome['prod_rmse']:.4f}")
     if retrain_outcome["promoted"] is not None:
         lines.append(f"- Promoted to production: {'Yes' if retrain_outcome['promoted'] else 'No'}")
+    _append_performance_line(lines, retrain_outcome)
     return "\n".join(lines)
+
+
+def _append_performance_line(lines: list[str], retrain_outcome: dict) -> None:
+    baseline_rmse = retrain_outcome.get("baseline_rmse")
+    live_rmse = retrain_outcome.get("live_rmse")
+    if baseline_rmse is not None and live_rmse is not None:
+        status = "DEGRADED" if retrain_outcome["performance_degraded"] else "stable"
+        lines.append(f"- Live vs. baseline RMSE: {live_rmse:.2f} vs {baseline_rmse:.2f} ({status})")
 
 
 def _format_performance_section(performance_summary: dict | None) -> str:

@@ -33,6 +33,9 @@ def test_build_weekly_digest_no_drift_no_retrain_with_performance():
         "new_rmse": None,
         "prod_rmse": None,
         "promoted": None,
+        "performance_degraded": False,
+        "baseline_rmse": 30.0,
+        "live_rmse": 32.5,
     }
     performance_summary = {
         "n_hours": 168,
@@ -50,6 +53,7 @@ def test_build_weekly_digest_no_drift_no_retrain_with_performance():
     assert "no drift detected (0% <= 30%)" in digest
     assert "RMSE: 32.50" in digest
     assert "R²: 0.8900" in digest
+    assert "Live vs. baseline RMSE: 32.50 vs 30.00 (stable)" in digest
 
 
 def test_build_weekly_digest_drift_detected_and_retrain_promoted():
@@ -74,6 +78,9 @@ def test_build_weekly_digest_drift_detected_and_retrain_promoted():
         "new_rmse": 28.3,
         "prod_rmse": 31.0,
         "promoted": True,
+        "performance_degraded": True,
+        "baseline_rmse": 25.0,
+        "live_rmse": 32.0,
     }
     performance_summary = None
 
@@ -85,6 +92,7 @@ def test_build_weekly_digest_drift_detected_and_retrain_promoted():
     assert "New model RMSE: 28.3000" in digest
     assert "Production model RMSE: 31.0000" in digest
     assert "Promoted to production: Yes" in digest
+    assert "Live vs. baseline RMSE: 32.00 vs 25.00 (DEGRADED)" in digest
 
 
 def test_build_weekly_digest_retrain_aborted_by_data_quality_failure():

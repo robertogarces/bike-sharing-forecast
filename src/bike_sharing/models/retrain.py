@@ -151,6 +151,52 @@ def describe_drift_skip_reason(drift_flag_path: Path) -> str:
     return f"no drift detected ({state['drift_share']:.0%} <= {state['threshold']:.0%})"
 
 
+def get_production_baseline_rmse(client: MlflowClient, project: str) -> float | None:
+    """
+    RMSE de validación que el modelo actualmente en producción obtuvo al
+    momento de su propia promoción, leído del run de MLflow asociado a la
+    versión con alias "production" — train.py ya loguea ese RMSE en el mismo
+    run donde se crea la versión (create_model_version(..., run_id=run_id)).
+
+    None si no existe alias "production" todavía (bootstrap — nada con qué
+    comparar).
+    """
+    try:
+        version = client.get_model_version_by_alias(f"{project}-registered", "production")
+    except mlflow.exceptions.MlflowException:
+        logger.info("No production model found — performance gate not evaluated (bootstrap)")
+        return None
+    run = client.get_run(version.run_id)
+    return run.data.metrics.get("rmse")
+
+
+def is_performance_degraded(
+    performance_history_path: Path,
+    baseline_rmse: float | None,
+    degradation_threshold: float,
+) -> tuple[bool, float | None]:
+    """
+    Compara el RMSE rodante más reciente (última fila de
+    performance_history.csv, escrito semanalmente por
+    performance_monitoring.py) contra el RMSE de validación del modelo en
+    producción al momento de su promoción.
+
+    Returns (degraded, live_rmse). degraded es siempre False si no hay
+    baseline o no hay historial de performance todavía (arranque en frío) —
+    live_rmse es None en esos casos.
+    """
+    if baseline_rmse is None or not performance_history_path.exists():
+        return False, None
+
+    df = pd.read_csv(performance_history_path)
+    if df.empty:
+        return False, None
+
+    live_rmse = float(df.iloc[-1]["rmse"])
+    degraded = live_rmse > baseline_rmse * (1 + degradation_threshold)
+    return degraded, live_rmse
+
+
 def evaluate_production_pair(project: str, val_df: pd.DataFrame) -> float | None:
     """
     Evaluate the current production model pair (registered + casual) on the
@@ -281,15 +327,45 @@ def main(cfg: DictConfig) -> None:
         "new_rmse": None,
         "prod_rmse": None,
         "promoted": None,
+        "performance_degraded": None,
+        "baseline_rmse": None,
+        "live_rmse": None,
     }
 
     try:
         # ── Configure MLflow ──────────────────────────────────────────────────
         setup_mlflow()
+        client = MlflowClient()
 
         # ── Check if retraining is needed ─────────────────────────────────────
-        if not should_retrain(drift_flag_path, force):
-            outcome["skip_reason"] = describe_drift_skip_reason(drift_flag_path)
+        # Two independent triggers, combined with OR: input drift (a proxy —
+        # can miss concept drift where X looks the same but the X→Y
+        # relationship changed) and live performance degradation (the direct
+        # signal, possible here because real actuals arrive ~1h later).
+        # Over-triggering isn't risky — promotion below only takes effect if
+        # the new pair is strictly better — so OR is the safer default.
+        drift_says_retrain = should_retrain(drift_flag_path, force)
+
+        baseline_rmse = get_production_baseline_rmse(client, cfg.project)
+        performance_history_path = artifacts_dir / "monitoring" / "performance_history.csv"
+        performance_degraded, live_rmse = is_performance_degraded(
+            performance_history_path,
+            baseline_rmse,
+            cfg.monitoring.performance_degradation_threshold,
+        )
+        outcome["performance_degraded"] = performance_degraded
+        outcome["baseline_rmse"] = baseline_rmse
+        outcome["live_rmse"] = live_rmse
+
+        if not drift_says_retrain and not performance_degraded:
+            reason = describe_drift_skip_reason(drift_flag_path)
+            if baseline_rmse is not None and live_rmse is not None:
+                pct = (live_rmse / baseline_rmse - 1) * 100
+                reason += (
+                    f"; performance stable (live rmse {live_rmse:.2f} vs "
+                    f"baseline {baseline_rmse:.2f}, {pct:+.1f}%)"
+                )
+            outcome["skip_reason"] = reason
             return
 
         # ── Check enough new data has accumulated since the last retrain ──────
@@ -348,7 +424,6 @@ def main(cfg: DictConfig) -> None:
         # Champion/challenger comparison on the SAME (current) val set: the new
         # pair's RMSE comes from evaluate.py (metrics.json), and the production
         # pair is re-scored on that same val.csv here — apples-to-apples.
-        client = MlflowClient()
 
         # New (challenger) pair's RMSE — already computed by evaluate.py on the
         # current val set during the dvc repro above.
