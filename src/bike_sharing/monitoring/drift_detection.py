@@ -13,6 +13,7 @@ from evidently.pipeline.column_mapping import ColumnMapping
 
 from bike_sharing.models.train import FEATURES
 from bike_sharing.utils.mlflow_utils import setup_mlflow
+from bike_sharing.utils.monitoring_utils import append_monitoring_record
 
 logger = logging.getLogger(__name__)
 
@@ -253,6 +254,12 @@ def main(cfg: DictConfig) -> None:
         f"{summary['n_drifted']}/{summary['n_features']} features drifted "
         f"({summary['drift_share']:.0%}) — drifted: {drifted_features}"
     )
+
+    # ── Persist ───────────────────────────────────────────────────────────────
+    history_path = artifacts_dir / "monitoring" / "drift_history.csv"
+    flat_summary = {k: v for k, v in summary.items() if k != "drift_by_column"}
+    append_monitoring_record(flat_summary, history_path)
+    logger.info(f"Drift record appended to {history_path}")
 
     # ── Log to MLflow ─────────────────────────────────────────────────────────
     setup_mlflow()
