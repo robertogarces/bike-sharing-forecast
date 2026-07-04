@@ -1,4 +1,5 @@
 import logging
+import tempfile
 from pathlib import Path
 from datetime import datetime
 
@@ -304,6 +305,32 @@ def promote_models_if_better(
     return False
 
 
+def snapshot_drift_reference(client: MlflowClient, project: str, train_csv_path: Path) -> None:
+    """
+    Snapshot the columns drift_detection.py needs (DRIFT_FEATURES + mnth)
+    from the just-regenerated train.csv, and attach it as an artifact on
+    the newly promoted model's own MLflow run.
+
+    Without this, drift_detection.py reads the live train.csv as its
+    reference — which keeps advancing every time dvc repro runs, even for
+    retrain attempts that don't get promoted. That desyncs the reference
+    from what the production model actually learned from, understating
+    drift relative to the model that's actually deployed.
+    """
+    from bike_sharing.monitoring.drift_detection import DRIFT_FEATURES
+
+    df = pd.read_csv(train_csv_path)
+    snapshot = df[DRIFT_FEATURES + ["mnth"]]
+    version = client.get_model_version_by_alias(f"{project}-registered", "production")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        snapshot_path = Path(tmpdir) / "drift_reference_snapshot.csv"
+        snapshot.to_csv(snapshot_path, index=False)
+        client.log_artifact(version.run_id, str(snapshot_path), artifact_path="drift_reference")
+
+    logger.info(f"Drift reference snapshot logged to production run {version.run_id}")
+
+
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     artifacts_dir = Path(cfg.paths.artifacts_dir)
@@ -452,6 +479,9 @@ def main(cfg: DictConfig) -> None:
 
         if promoted:
             logger.info("New model pair promoted to Production")
+            snapshot_drift_reference(
+                client, cfg.project, Path(cfg.paths.processed_dir) / "train.csv"
+            )
         else:
             logger.warning("New model pair not promoted — previous Production pair retained")
 

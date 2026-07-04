@@ -6,6 +6,7 @@ from datetime import datetime
 import hydra
 import pandas as pd
 import mlflow
+from mlflow.tracking import MlflowClient
 from omegaconf import DictConfig
 from evidently.report import Report
 from evidently.metric_preset import DataDriftPreset
@@ -26,15 +27,42 @@ logger = logging.getLogger(__name__)
 DRIFT_FEATURES = [f for f in FEATURES if f != "days_since_start"]
 
 
+def _load_reference_snapshot(client: MlflowClient, project: str) -> pd.DataFrame | None:
+    """
+    Load the drift reference snapshotted at the production model's own
+    promotion time (retrain.py's snapshot_drift_reference). None if no
+    snapshot exists yet (model promoted before this existed, or bootstrap)
+    — caller falls back to the live train.csv.
+    """
+    try:
+        version = client.get_model_version_by_alias(f"{project}-registered", "production")
+        local_path = client.download_artifacts(
+            version.run_id, "drift_reference/drift_reference_snapshot.csv"
+        )
+        return pd.read_csv(local_path)
+    except Exception as e:
+        logger.warning(f"No drift reference snapshot found for production model — {e}")
+        return None
+
+
 def load_reference(
     processed_dir: Path,
     months: list[int],
+    client: MlflowClient | None = None,
+    project: str | None = None,
     min_reference_rows: int = 500,
 ) -> pd.DataFrame:
     """
-    Load the training dataset as the drift reference, restricted to rows
-    from the same calendar month(s) as the current window (mnth is
-    preserved in train.csv, unaffected by the simulation's date-shifting).
+    Load the drift reference, restricted to rows from the same calendar
+    month(s) as the current window (mnth is preserved in train.csv,
+    unaffected by the simulation's date-shifting).
+
+    Prefers the snapshot taken when the current production model was
+    promoted (see snapshot_drift_reference in retrain.py) — train.csv keeps
+    advancing every time dvc repro runs, even for retrain attempts that
+    don't get promoted, which would otherwise desync the reference from
+    what the production model actually learned from. Falls back to the
+    live train.csv if no snapshot exists yet.
 
     Comparing against all months mixes every season into one distribution,
     so a single week's weather/demand-level features almost always look
@@ -50,13 +78,23 @@ def load_reference(
     Parameters
     ----------
     processed_dir : Path
-        Directory containing train.csv.
+        Directory containing train.csv (fallback source).
     months : list[int]
         Calendar month(s) (1-12) covered by the current window.
+    client : MlflowClient | None
+        Used to look up the production model's drift reference snapshot.
+        Optional — if omitted, skips straight to the train.csv fallback
+        (e.g. callers that don't need/have an MLflow client).
+    project : str | None
+        Registered-model name prefix. Required together with client.
     min_reference_rows : int
         Minimum reference rows required before widening/falling back.
     """
-    df = pd.read_csv(processed_dir / "train.csv")
+    df = None
+    if client is not None and project is not None:
+        df = _load_reference_snapshot(client, project)
+    if df is None:
+        df = pd.read_csv(processed_dir / "train.csv")
 
     subset = df[df["mnth"].isin(months)]
     if len(subset) < min_reference_rows:
@@ -218,6 +256,9 @@ def main(cfg: DictConfig) -> None:
     drift_dir = artifacts_dir / "drift"
     drift_threshold = float(cfg.monitoring.drift_threshold)
 
+    setup_mlflow()
+    client = MlflowClient()
+
     # ── Load current first — its calendar month(s) drive which reference to use ──
     logger.info(f"Loading current data (last {cfg.monitoring.n_hours} hours)")
     current_raw = load_current(
@@ -235,6 +276,8 @@ def main(cfg: DictConfig) -> None:
     reference = load_reference(
         processed_dir,
         months,
+        client=client,
+        project=cfg.project,
         min_reference_rows=cfg.monitoring.min_reference_rows,
     )
 
@@ -264,7 +307,6 @@ def main(cfg: DictConfig) -> None:
     logger.info(f"Drift record appended to {history_path}")
 
     # ── Log to MLflow ─────────────────────────────────────────────────────────
-    setup_mlflow()
     mlflow.set_experiment(cfg.project)
     with mlflow.start_run(run_name="drift_detection"):
         mlflow.log_metrics(

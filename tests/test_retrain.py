@@ -15,8 +15,10 @@ from bike_sharing.models.retrain import (
     evaluate_production_pair,
     promote_models_if_better,
     is_performance_degraded,
+    snapshot_drift_reference,
 )
 from bike_sharing.models.train import FEATURES
+from bike_sharing.monitoring.drift_detection import DRIFT_FEATURES
 
 
 @pytest.fixture
@@ -381,3 +383,52 @@ def test_promote_models_if_better_keeps_production_when_new_is_worse():
     assert (f"{project}-registered", "archived", "5") in client.alias_calls
     assert (f"{project}-casual", "archived", "5") in client.alias_calls
     assert not any(alias == "production" for (_, alias, _) in client.alias_calls)
+
+
+# ── snapshot_drift_reference ──────────────────────────────────────────────────
+
+
+class _FakeVersionWithRunId:
+    def __init__(self, run_id):
+        self.run_id = run_id
+
+
+class _FakeClientForSnapshot:
+    """
+    Stub for get_model_version_by_alias + log_artifact. log_artifact reads
+    the CSV immediately (rather than just recording the path) since the
+    caller writes it inside a TemporaryDirectory that's gone by the time
+    the test could otherwise inspect it.
+    """
+
+    def __init__(self, run_id="run123"):
+        self.run_id = run_id
+        self.logged_artifacts = []
+
+    def get_model_version_by_alias(self, name, alias):
+        return _FakeVersionWithRunId(self.run_id)
+
+    def log_artifact(self, run_id, local_path, artifact_path=None):
+        self.logged_artifacts.append((run_id, artifact_path, pd.read_csv(local_path)))
+
+
+def test_snapshot_drift_reference_logs_drift_features_and_mnth(tmp_path):
+    """
+    The snapshot must contain exactly DRIFT_FEATURES + mnth — no more (other
+    train.csv columns), no less (mnth is required for load_reference's
+    month matching) — logged to the promoted model's own run.
+    """
+    train_csv_path = tmp_path / "train.csv"
+    pd.DataFrame(
+        {**{f: [1.0, 2.0] for f in DRIFT_FEATURES}, "mnth": [1, 2], "atemp": [0.5, 0.6]}
+    ).to_csv(train_csv_path, index=False)
+
+    client = _FakeClientForSnapshot(run_id="run123")
+
+    snapshot_drift_reference(client, "bike-sharing-forecast", train_csv_path)
+
+    assert len(client.logged_artifacts) == 1
+    run_id, artifact_path, logged_df = client.logged_artifacts[0]
+    assert run_id == "run123"
+    assert artifact_path == "drift_reference"
+    assert list(logged_df.columns) == DRIFT_FEATURES + ["mnth"]
