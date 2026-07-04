@@ -51,7 +51,9 @@ model_casual = None
 def init():
     global model_registered, model_casual
     project = os.getenv("PROJECT_NAME", "bike-sharing-forecast")
-    version = os.getenv("MODEL_VERSION", "6")
+    version = os.getenv("MODEL_VERSION")
+    if version is None:
+        raise RuntimeError("MODEL_VERSION environment variable must be set.")
     logger.info(f"Loading models v{version} from MLflow registry")
     model_registered = mlflow.lightgbm.load_model(f"models:/{project}-registered/{version}")
     model_casual = mlflow.lightgbm.load_model(f"models:/{project}-casual/{version}")
