@@ -13,21 +13,9 @@ from omegaconf import DictConfig
 from bike_sharing.features.build_features import build_lag_features, build_calendar_features
 from bike_sharing.models.train import FEATURES
 from bike_sharing.utils.datetime_utils import reconstruct_datetime
+from bike_sharing.utils.simulation_utils import load_simulation_state
 
 logger = logging.getLogger(__name__)
-
-
-def load_simulation_state(state_path: Path) -> dict:
-    """
-    Load the simulation state from disk.
-    Raises if the simulation has not been initialized.
-    """
-    if not state_path.exists():
-        raise RuntimeError(
-            "No simulation state found. Run shift_dates.py first to initialize the simulation."
-        )
-    with open(state_path) as f:
-        return json.load(f)
 
 
 def build_next_hour_features(
