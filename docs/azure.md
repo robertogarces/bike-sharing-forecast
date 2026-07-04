@@ -177,6 +177,11 @@ permissions:
 The workflow creates the endpoint, grants its managed identity access to the model registry, and
 deploys the scoring container.
 
+Before triggering a redeploy after a new Azure training job, run
+`python azure/sync_deployment_versions.py` (with `MLFLOW_TRACKING_URI` pointed at the Azure ML
+workspace) to pull the latest registered/casual versions from the Azure ML Model Registry into
+`deployment.yaml` — otherwise the endpoint keeps serving whatever version was last hardcoded there.
+
 ![GitHub Actions deploy workflow](assets/github-actions-azure-endpoint-deploy.png)
 
 ---
@@ -192,6 +197,7 @@ deploys the scoring container.
 | [azure/conda_endpoint.yaml](../azure/conda_endpoint.yaml) | Serving environment dependencies |
 | [azure/endpoint.yaml](../azure/endpoint.yaml) | Managed Online Endpoint definition |
 | [azure/deployment.yaml](../azure/deployment.yaml) | Deployment config (SKU, env vars, model version) |
+| [azure/sync_deployment_versions.py](../azure/sync_deployment_versions.py) | Pulls latest registry versions into deployment.yaml before a redeploy |
 | [azure/sample_request.json](../azure/sample_request.json) | Example request payload |
 | [.github/workflows/deploy-azure.yml](../.github/workflows/deploy-azure.yml) | Manual deploy workflow with OIDC |
 
