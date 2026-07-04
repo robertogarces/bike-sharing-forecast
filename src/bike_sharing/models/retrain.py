@@ -154,19 +154,24 @@ def describe_drift_skip_reason(drift_flag_path: Path) -> str:
 
 def get_production_baseline_rmse(client: MlflowClient, project: str) -> float | None:
     """
-    RMSE de validación que el modelo actualmente en producción obtuvo al
-    momento de su propia promoción, leído del run de MLflow asociado a la
-    versión con alias "production" — train.py ya loguea ese RMSE en el mismo
-    run donde se crea la versión (create_model_version(..., run_id=run_id)).
+    Combined RMSE of the current production pair at the time it was
+    promoted. Read first from the "combined_rmse_baseline" tag on the
+    registered model's "production" version — logged by
+    promote_best_combination after each promotion, since with mixed pairs
+    the RMSE no longer corresponds to a single training run. Falls back to
+    the "rmse" metric train.py logs on the run (versions promoted before
+    this tag existed).
 
-    None si no existe alias "production" todavía (bootstrap — nada con qué
-    comparar).
+    None if no "production" alias exists yet (bootstrap — nothing to compare
+    against).
     """
     try:
         version = client.get_model_version_by_alias(f"{project}-registered", "production")
     except mlflow.exceptions.MlflowException:
         logger.info("No production model found — performance gate not evaluated (bootstrap)")
         return None
+    if "combined_rmse_baseline" in version.tags:
+        return float(version.tags["combined_rmse_baseline"])
     run = client.get_run(version.run_id)
     return run.data.metrics.get("rmse")
 
@@ -490,6 +495,18 @@ def main(cfg: DictConfig) -> None:
         promotions = promote_best_combination(client, cfg.project, combos)
         outcome["promoted_registered"] = promotions["registered"]
         outcome["promoted_casual"] = promotions["casual"]
+
+        if combos is not None:
+            baseline_rmse = combos[choose_best_combination(combos)]
+            prod_version = client.get_model_version_by_alias(
+                f"{cfg.project}-registered", "production"
+            )
+            client.set_model_version_tag(
+                f"{cfg.project}-registered",
+                prod_version.version,
+                "combined_rmse_baseline",
+                str(baseline_rmse),
+            )
 
         if promotions["registered"] or promotions["casual"]:
             logger.info(

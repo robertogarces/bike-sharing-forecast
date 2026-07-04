@@ -3,6 +3,7 @@ import json
 import tempfile
 from pathlib import Path
 
+import mlflow
 import numpy as np
 import pandas as pd
 
@@ -15,6 +16,7 @@ from bike_sharing.models.retrain import (
     _combination_rmses,
     choose_best_combination,
     promote_best_combination,
+    get_production_baseline_rmse,
 )
 from bike_sharing.monitoring.drift_detection import DRIFT_FEATURES
 
@@ -289,6 +291,62 @@ def test_is_performance_degraded_false_when_history_missing(tmp_path):
 
     assert degraded is False
     assert live_rmse is None
+
+
+# ── get_production_baseline_rmse ──────────────────────────────────────────────
+
+
+class _FakeRunWithMetrics:
+    def __init__(self, metrics):
+        self.data = type("_Data", (), {"metrics": metrics})()
+
+
+class _FakeVersionWithTags:
+    def __init__(self, run_id, tags):
+        self.run_id = run_id
+        self.tags = tags
+
+
+class _FakeClientForBaseline:
+    def __init__(self, version=None, run_metrics=None):
+        self._version = version
+        self._run_metrics = run_metrics or {}
+
+    def get_model_version_by_alias(self, name, alias):
+        if self._version is None:
+            raise mlflow.exceptions.MlflowException("no production version")
+        return self._version
+
+    def get_run(self, run_id):
+        return _FakeRunWithMetrics(self._run_metrics)
+
+
+def test_get_production_baseline_rmse_prefers_tag_over_run_metric():
+    """
+    The tag set by promote_best_combination after promotion must win over the
+    run's own "rmse" metric — with a mixed pair, the run's rmse reflects
+    whatever pair was trained together at that run, not the mixed pair
+    actually deployed.
+    """
+    client = _FakeClientForBaseline(
+        version=_FakeVersionWithTags(run_id="run1", tags={"combined_rmse_baseline": "12.5"}),
+        run_metrics={"rmse": 99.0},
+    )
+    assert get_production_baseline_rmse(client, "bike-sharing-forecast") == pytest.approx(12.5)
+
+
+def test_get_production_baseline_rmse_falls_back_to_run_metric_without_tag():
+    """Versions promoted before this fix have no tag — fall back to the run's rmse."""
+    client = _FakeClientForBaseline(
+        version=_FakeVersionWithTags(run_id="run1", tags={}),
+        run_metrics={"rmse": 30.0},
+    )
+    assert get_production_baseline_rmse(client, "bike-sharing-forecast") == pytest.approx(30.0)
+
+
+def test_get_production_baseline_rmse_returns_none_when_no_production():
+    client = _FakeClientForBaseline(version=None)
+    assert get_production_baseline_rmse(client, "bike-sharing-forecast") is None
 
 
 # ── promote_best_combination ──────────────────────────────────────────────────
