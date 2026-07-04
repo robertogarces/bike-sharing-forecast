@@ -295,11 +295,6 @@ def main(cfg: DictConfig) -> None:
         model_casual.booster_.save_model(Path(cfg.paths.models_dir) / "lgbm_casual.txt")
         logger.info(f"Models saved to {cfg.paths.models_dir}")
 
-        # ── Save models locally ───────────────────────────────────────────────
-        model_registered.booster_.save_model(Path(cfg.paths.models_dir) / "lgbm_registered.txt")
-        model_casual.booster_.save_model(Path(cfg.paths.models_dir) / "lgbm_casual.txt")
-        logger.info(f"Models saved to {cfg.paths.models_dir}")
-
 
 if __name__ == "__main__":
     main()
