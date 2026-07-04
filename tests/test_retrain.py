@@ -476,8 +476,10 @@ class _FakeClientForSnapshot:
     def __init__(self, run_id="run123"):
         self.run_id = run_id
         self.logged_artifacts = []
+        self.alias_lookups = []  # list of (name, alias)
 
     def get_model_version_by_alias(self, name, alias):
+        self.alias_lookups.append((name, alias))
         return _FakeVersionWithRunId(self.run_id)
 
     def log_artifact(self, run_id, local_path, artifact_path=None):
@@ -497,10 +499,39 @@ def test_snapshot_drift_reference_logs_drift_features_and_mnth(tmp_path):
 
     client = _FakeClientForSnapshot(run_id="run123")
 
-    snapshot_drift_reference(client, "bike-sharing-forecast", train_csv_path)
+    snapshot_drift_reference(
+        client,
+        "bike-sharing-forecast",
+        train_csv_path,
+        promotions={"registered": True, "casual": False},
+    )
 
     assert len(client.logged_artifacts) == 1
     run_id, artifact_path, logged_df = client.logged_artifacts[0]
     assert run_id == "run123"
     assert artifact_path == "drift_reference"
     assert list(logged_df.columns) == DRIFT_FEATURES + ["mnth"]
+    assert client.alias_lookups == [("bike-sharing-forecast-registered", "production")]
+
+
+def test_snapshot_drift_reference_uses_casual_run_when_only_casual_promoted(tmp_path):
+    """
+    A mixed promotion where only casual moved must attach the snapshot to
+    casual's run, not registered's — registered's production run didn't
+    change and attaching there would overwrite an unrelated past snapshot.
+    """
+    train_csv_path = tmp_path / "train.csv"
+    pd.DataFrame({**{f: [1.0, 2.0] for f in DRIFT_FEATURES}, "mnth": [1, 2]}).to_csv(
+        train_csv_path, index=False
+    )
+
+    client = _FakeClientForSnapshot(run_id="run456")
+
+    snapshot_drift_reference(
+        client,
+        "bike-sharing-forecast",
+        train_csv_path,
+        promotions={"registered": False, "casual": True},
+    )
+
+    assert client.alias_lookups == [("bike-sharing-forecast-casual", "production")]

@@ -334,11 +334,16 @@ def promote_best_combination(
     return promotions
 
 
-def snapshot_drift_reference(client: MlflowClient, project: str, train_csv_path: Path) -> None:
+def snapshot_drift_reference(
+    client: MlflowClient, project: str, train_csv_path: Path, promotions: dict[str, bool]
+) -> None:
     """
     Snapshot the columns drift_detection.py needs (DRIFT_FEATURES + mnth)
-    from the just-regenerated train.csv, and attach it as an artifact on
-    the newly promoted model's own MLflow run.
+    from the just-regenerated train.csv, and attach it as an artifact on the
+    run of whichever model actually got promoted — registered if it moved,
+    otherwise casual. Always using registered's run regardless of which
+    model moved would, with a mixed pair, write over a snapshot already
+    logged there for an unrelated promotion.
 
     Without this, drift_detection.py reads the live train.csv as its
     reference — which keeps advancing every time dvc repro runs, even for
@@ -350,7 +355,8 @@ def snapshot_drift_reference(client: MlflowClient, project: str, train_csv_path:
 
     df = pd.read_csv(train_csv_path)
     snapshot = df[DRIFT_FEATURES + ["mnth"]]
-    version = client.get_model_version_by_alias(f"{project}-registered", "production")
+    model_name = "registered" if promotions["registered"] else "casual"
+    version = client.get_model_version_by_alias(f"{project}-{model_name}", "production")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         snapshot_path = Path(tmpdir) / "drift_reference_snapshot.csv"
@@ -513,7 +519,7 @@ def main(cfg: DictConfig) -> None:
                 f"Promoted — registered: {promotions['registered']}, casual: {promotions['casual']}"
             )
             snapshot_drift_reference(
-                client, cfg.project, Path(cfg.paths.processed_dir) / "train.csv"
+                client, cfg.project, Path(cfg.paths.processed_dir) / "train.csv", promotions
             )
         else:
             logger.warning("No model promoted — previous production pair retained")
