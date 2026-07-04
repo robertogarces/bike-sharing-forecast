@@ -77,6 +77,7 @@ def load_current(
     n_hours: int,
     lags: list[int],
     rolling_windows: list[int],
+    drop_cols: list[str],
 ) -> pd.DataFrame:
     """
     Load the most recent n_hours records from hour_past.csv as current data.
@@ -109,7 +110,7 @@ def load_current(
     )
 
     min_date = df["dteday"].min()
-    df = build_calendar_features(df, drop_cols=["atemp", "yr"], min_date=min_date)
+    df = build_calendar_features(df, drop_cols=drop_cols, min_date=min_date)
 
     df = df.dropna(subset=DRIFT_FEATURES).tail(n_hours)
 
@@ -225,6 +226,7 @@ def main(cfg: DictConfig) -> None:
         n_hours=cfg.monitoring.n_hours,
         lags=list(cfg.features.lags),
         rolling_windows=list(cfg.features.rolling_windows),
+        drop_cols=list(cfg.features.drop_cols),
     )
     months = sorted(current_raw["mnth"].unique().tolist())
     current = current_raw[DRIFT_FEATURES]
