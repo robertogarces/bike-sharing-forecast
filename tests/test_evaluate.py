@@ -23,7 +23,7 @@ def _make_val(cnt):
 def test_evaluate_models_perfect_prediction_gives_zero_rmse():
     """
     evaluate_models combines registered + casual predictions the same way
-    evaluate_production_pair does (expm1, sum, clip). If both fakes predict
+    _combination_rmses does (expm1, sum, clip). If both fakes predict
     exactly the log-space values that reconstruct cnt, RMSE must be 0.
     """
     val = _make_val([100, 200, 150])

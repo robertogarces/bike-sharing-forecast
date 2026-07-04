@@ -61,8 +61,12 @@ def _format_retrain_section(retrain_outcome: dict | None) -> str:
         lines.append(f"- New model RMSE: {retrain_outcome['new_rmse']:.4f}")
     if retrain_outcome["prod_rmse"] is not None:
         lines.append(f"- Production model RMSE: {retrain_outcome['prod_rmse']:.4f}")
-    if retrain_outcome["promoted"] is not None:
-        lines.append(f"- Promoted to production: {'Yes' if retrain_outcome['promoted'] else 'No'}")
+    if retrain_outcome.get("promoted_registered") is not None:
+        lines.append(
+            f"- Promoted to production: "
+            f"registered={'Yes' if retrain_outcome['promoted_registered'] else 'No'}, "
+            f"casual={'Yes' if retrain_outcome['promoted_casual'] else 'No'}"
+        )
     _append_performance_line(lines, retrain_outcome)
     return "\n".join(lines)
 

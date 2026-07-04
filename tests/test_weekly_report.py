@@ -32,7 +32,8 @@ def test_build_weekly_digest_no_drift_no_retrain_with_performance():
         "data_quality_issues": [],
         "new_rmse": None,
         "prod_rmse": None,
-        "promoted": None,
+        "promoted_registered": None,
+        "promoted_casual": None,
         "performance_degraded": False,
         "baseline_rmse": 30.0,
         "live_rmse": 32.5,
@@ -77,7 +78,8 @@ def test_build_weekly_digest_drift_detected_and_retrain_promoted():
         "data_quality_issues": [],
         "new_rmse": 28.3,
         "prod_rmse": 31.0,
-        "promoted": True,
+        "promoted_registered": True,
+        "promoted_casual": False,
         "performance_degraded": True,
         "baseline_rmse": 25.0,
         "live_rmse": 32.0,
@@ -91,7 +93,7 @@ def test_build_weekly_digest_drift_detected_and_retrain_promoted():
     assert "Attempted: Yes" in digest
     assert "New model RMSE: 28.3000" in digest
     assert "Production model RMSE: 31.0000" in digest
-    assert "Promoted to production: Yes" in digest
+    assert "Promoted to production: registered=Yes, casual=No" in digest
     assert "Live vs. baseline RMSE: 32.00 vs 25.00 (DEGRADED)" in digest
 
 
@@ -104,7 +106,8 @@ def test_build_weekly_digest_retrain_aborted_by_data_quality_failure():
         "data_quality_issues": ["missing column 'hum'"],
         "new_rmse": None,
         "prod_rmse": None,
-        "promoted": None,
+        "promoted_registered": None,
+        "promoted_casual": None,
     }
 
     digest = build_weekly_digest(None, retrain_outcome, None)

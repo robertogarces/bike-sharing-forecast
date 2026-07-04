@@ -3,8 +3,6 @@ import json
 import tempfile
 from pathlib import Path
 
-import mlflow
-import mlflow.lightgbm
 import numpy as np
 import pandas as pd
 
@@ -12,12 +10,12 @@ from bike_sharing.models.retrain import (
     should_retrain,
     count_new_hours,
     write_retrain_marker,
-    evaluate_production_pair,
-    promote_models_if_better,
     is_performance_degraded,
     snapshot_drift_reference,
+    _combination_rmses,
+    choose_best_combination,
+    promote_best_combination,
 )
-from bike_sharing.models.train import FEATURES
 from bike_sharing.monitoring.drift_detection import DRIFT_FEATURES
 
 
@@ -183,61 +181,64 @@ def test_write_then_count_roundtrip_is_zero(hour_past_csv):
     assert count_new_hours(hour_past_path, marker_path) == 0
 
 
-# ── evaluate_production_pair ──────────────────────────────────────────────────
+# ── _combination_rmses ────────────────────────────────────────────────────────
 
 
-class _FakeModel:
-    """Model stub whose predict() returns a fixed, caller-supplied array."""
-
-    def __init__(self, log_preds):
-        self.log_preds = log_preds
-
-    def predict(self, X):
-        return self.log_preds
-
-
-def test_evaluate_production_pair_perfect_prediction_gives_zero_rmse(monkeypatch):
+def test_combination_rmses_captures_error_cancellation_not_individual_accuracy():
     """
-    evaluate_production_pair combines registered + casual predictions the same
-    way evaluate.py does (expm1, sum, clip). If both fakes predict exactly the
-    log-space values that reconstruct cnt, the combined RMSE must be 0.
+    Reproduces the session's Example 1: each new model is individually more
+    accurate than its production counterpart (error 5 vs 10), but the
+    production pair's errors happen to cancel in the sum (+10, -10) while the
+    new pair's compound (+5, +5) — so the combined RMSE is WORSE for the
+    "individually better" new pair. This is exactly why combined RMSE, not
+    per-model RMSE, must drive the promotion decision.
     """
-    project = "bike-sharing-forecast"
-    val_df = pd.DataFrame({**{f: 0.0 for f in FEATURES}, "cnt": [100, 200]})
+    y_cnt = np.array([150.0, 280.0, 210.0])  # true registered + casual
+    new_reg = np.array([105.0, 205.0, 155.0])  # true registered + 5
+    new_cas = np.array([55.0, 85.0, 65.0])  # true casual + 5
+    prod_reg = np.array([110.0, 210.0, 160.0])  # true registered + 10
+    prod_cas = np.array([40.0, 70.0, 50.0])  # true casual - 10
 
-    fakes = {
-        f"{project}-registered": _FakeModel(np.log1p([60, 150])),
-        f"{project}-casual": _FakeModel(np.log1p([40, 50])),
+    combos = _combination_rmses(y_cnt, new_reg, new_cas, prod_reg, prod_cas)
+
+    assert combos[("prod", "prod")] == pytest.approx(0.0)
+    assert combos[("new", "new")] == pytest.approx(10.0)
+    assert combos[("new", "new")] > combos[("prod", "prod")]
+
+
+# ── choose_best_combination ───────────────────────────────────────────────────
+
+
+def test_choose_best_combination_picks_mixed_pair_when_it_wins():
+    """Reproduces Example 2: a mixed pair beats both pure pairs and production."""
+    combos = {
+        ("new", "new"): 30.0,
+        ("new", "prod"): 0.0,
+        ("prod", "new"): 50.0,
+        ("prod", "prod"): 20.0,
     }
-
-    def fake_load_model(model_uri):
-        for name, model in fakes.items():
-            if model_uri == f"models:/{name}@production":
-                return model
-        raise AssertionError(f"unexpected model_uri: {model_uri}")
-
-    monkeypatch.setattr(mlflow.lightgbm, "load_model", fake_load_model)
-
-    rmse = evaluate_production_pair(project, val_df)
-
-    assert rmse == pytest.approx(0.0)
+    assert choose_best_combination(combos) == ("new", "prod")
 
 
-def test_evaluate_production_pair_returns_none_when_no_production_model(monkeypatch):
-    """
-    No production alias yet (bootstrap) — nothing to compare against.
-    MLflow raises MlflowException when an alias doesn't exist; the function
-    should catch it and return None rather than propagate.
-    """
+def test_choose_best_combination_keeps_production_on_tie():
+    """A tie with production must not churn aliases for zero real gain."""
+    combos = {
+        ("new", "new"): 20.0,
+        ("new", "prod"): 20.0,
+        ("prod", "new"): 25.0,
+        ("prod", "prod"): 20.0,
+    }
+    assert choose_best_combination(combos) == ("prod", "prod")
 
-    def raise_not_found(model_uri):
-        raise mlflow.exceptions.MlflowException("Registered model alias production not found")
 
-    monkeypatch.setattr(mlflow.lightgbm, "load_model", raise_not_found)
-
-    val_df = pd.DataFrame({**{f: 0.0 for f in FEATURES}, "cnt": [100]})
-
-    assert evaluate_production_pair("bike-sharing-forecast", val_df) is None
+def test_choose_best_combination_keeps_production_when_it_wins():
+    combos = {
+        ("new", "new"): 25.0,
+        ("new", "prod"): 22.0,
+        ("prod", "new"): 30.0,
+        ("prod", "prod"): 20.0,
+    }
+    assert choose_best_combination(combos) == ("prod", "prod")
 
 
 # ── is_performance_degraded ──────────────────────────────────────────────────
@@ -290,7 +291,7 @@ def test_is_performance_degraded_false_when_history_missing(tmp_path):
     assert live_rmse is None
 
 
-# ── promote_models_if_better ──────────────────────────────────────────────────
+# ── promote_best_combination ──────────────────────────────────────────────────
 
 
 class _FakeVersion:
@@ -328,58 +329,71 @@ class _FakeMlflowClient:
         self.alias_calls.append((name, alias, version))
 
 
-def test_promote_models_if_better_bootstraps_when_no_production():
-    """
-    prod_rmse=None (no production alias exists yet) → promote both new
-    versions directly, no comparison needed.
-    """
+def test_promote_best_combination_bootstraps_when_no_production():
+    """combos=None (no production alias exists yet) → promote both new."""
     project = "bike-sharing-forecast"
     client = _FakeMlflowClient(
         versions={f"{project}-registered": "3", f"{project}-casual": "3"},
         production={},
     )
 
-    promoted = promote_models_if_better(client, project, new_rmse=50.0, prod_rmse=None)
+    promotions = promote_best_combination(client, project, combos=None)
 
-    assert promoted is True
+    assert promotions == {"registered": True, "casual": True}
     assert (f"{project}-registered", "production", "3") in client.alias_calls
     assert (f"{project}-casual", "production", "3") in client.alias_calls
 
 
-def test_promote_models_if_better_promotes_when_new_beats_production():
+def test_promote_best_combination_promotes_mixed_pair():
     """
-    new_rmse < prod_rmse → both new versions become production, both old
-    production versions become archived (atomic, both-or-neither).
+    A mixed combination wins (new registered + current-production casual):
+    only the registered alias moves; casual's production alias stays
+    untouched, but its untested new version still gets archived.
     """
     project = "bike-sharing-forecast"
     client = _FakeMlflowClient(
         versions={f"{project}-registered": "5", f"{project}-casual": "5"},
         production={f"{project}-registered": "4", f"{project}-casual": "4"},
     )
+    combos = {
+        ("new", "new"): 30.0,
+        ("new", "prod"): 0.0,  # winner: new registered + prod casual
+        ("prod", "new"): 50.0,
+        ("prod", "prod"): 20.0,
+    }
 
-    promoted = promote_models_if_better(client, project, new_rmse=45.0, prod_rmse=50.0)
+    promotions = promote_best_combination(client, project, combos)
 
-    assert promoted is True
+    assert promotions == {"registered": True, "casual": False}
     assert (f"{project}-registered", "production", "5") in client.alias_calls
-    assert (f"{project}-casual", "production", "5") in client.alias_calls
     assert (f"{project}-registered", "archived", "4") in client.alias_calls
-    assert (f"{project}-casual", "archived", "4") in client.alias_calls
+    assert (f"{project}-casual", "archived", "5") in client.alias_calls
+    assert not any(
+        name == f"{project}-casual" and alias == "production"
+        for (name, alias, _) in client.alias_calls
+    )
 
 
-def test_promote_models_if_better_keeps_production_when_new_is_worse():
+def test_promote_best_combination_keeps_production_when_it_wins():
     """
-    new_rmse >= prod_rmse → new versions are archived, production alias is
-    left untouched (previous champion retained).
+    Production pair beats every new/mixed combination → no production alias
+    changes for either model; both untested new versions get archived.
     """
     project = "bike-sharing-forecast"
     client = _FakeMlflowClient(
         versions={f"{project}-registered": "5", f"{project}-casual": "5"},
         production={f"{project}-registered": "4", f"{project}-casual": "4"},
     )
+    combos = {
+        ("new", "new"): 25.0,
+        ("new", "prod"): 22.0,
+        ("prod", "new"): 30.0,
+        ("prod", "prod"): 20.0,
+    }
 
-    promoted = promote_models_if_better(client, project, new_rmse=55.0, prod_rmse=50.0)
+    promotions = promote_best_combination(client, project, combos)
 
-    assert promoted is False
+    assert promotions == {"registered": False, "casual": False}
     assert (f"{project}-registered", "archived", "5") in client.alias_calls
     assert (f"{project}-casual", "archived", "5") in client.alias_calls
     assert not any(alias == "production" for (_, alias, _) in client.alias_calls)
