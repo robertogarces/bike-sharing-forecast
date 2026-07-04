@@ -51,3 +51,24 @@ def test_append_monitoring_record_always_appends_never_dedupes():
 
         df = pd.read_csv(history_path)
         assert len(df) == 3
+
+
+def test_append_monitoring_record_handles_new_column_without_corrupting_old_rows():
+    """
+    Schema evolution: if a later record includes a column earlier records
+    didn't have, pd.concat must align by name — old rows get NaN for the
+    new column, not a corrupted/misaligned CSV (mode="a" would silently
+    shift columns instead of raising).
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        history_path = Path(tmpdir) / "history.csv"
+
+        append_monitoring_record({"timestamp": "2026-01-01T00:00:00", "rmse": 50.0}, history_path)
+        append_monitoring_record(
+            {"timestamp": "2026-01-01T01:00:00", "rmse": 55.0, "new_metric": 0.9}, history_path
+        )
+
+        df = pd.read_csv(history_path)
+        assert len(df) == 2
+        assert pd.isna(df.iloc[0]["new_metric"])
+        assert df.iloc[1]["new_metric"] == 0.9
