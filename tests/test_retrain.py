@@ -14,6 +14,7 @@ from bike_sharing.models.retrain import (
     write_retrain_marker,
     evaluate_production_pair,
     promote_models_if_better,
+    is_performance_degraded,
 )
 from bike_sharing.models.train import FEATURES
 
@@ -235,6 +236,56 @@ def test_evaluate_production_pair_returns_none_when_no_production_model(monkeypa
     val_df = pd.DataFrame({**{f: 0.0 for f in FEATURES}, "cnt": [100]})
 
     assert evaluate_production_pair("bike-sharing-forecast", val_df) is None
+
+
+# ── is_performance_degraded ──────────────────────────────────────────────────
+
+
+def test_is_performance_degraded_true_when_over_threshold(tmp_path):
+    history_path = tmp_path / "performance_history.csv"
+    pd.DataFrame([{"rmse": 60.0}, {"rmse": 61.0}]).to_csv(history_path, index=False)
+
+    degraded, live_rmse = is_performance_degraded(
+        history_path, baseline_rmse=50.0, degradation_threshold=0.2
+    )
+
+    assert degraded is True
+    assert live_rmse == 61.0
+
+
+def test_is_performance_degraded_false_when_within_threshold(tmp_path):
+    history_path = tmp_path / "performance_history.csv"
+    pd.DataFrame([{"rmse": 55.0}]).to_csv(history_path, index=False)
+
+    degraded, live_rmse = is_performance_degraded(
+        history_path, baseline_rmse=50.0, degradation_threshold=0.2
+    )
+
+    assert degraded is False
+    assert live_rmse == 55.0
+
+
+def test_is_performance_degraded_false_when_no_baseline(tmp_path):
+    history_path = tmp_path / "performance_history.csv"
+    pd.DataFrame([{"rmse": 100.0}]).to_csv(history_path, index=False)
+
+    degraded, live_rmse = is_performance_degraded(
+        history_path, baseline_rmse=None, degradation_threshold=0.2
+    )
+
+    assert degraded is False
+    assert live_rmse is None
+
+
+def test_is_performance_degraded_false_when_history_missing(tmp_path):
+    history_path = tmp_path / "does_not_exist.csv"
+
+    degraded, live_rmse = is_performance_degraded(
+        history_path, baseline_rmse=50.0, degradation_threshold=0.2
+    )
+
+    assert degraded is False
+    assert live_rmse is None
 
 
 # ── promote_models_if_better ──────────────────────────────────────────────────
