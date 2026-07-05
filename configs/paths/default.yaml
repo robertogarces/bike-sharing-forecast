@@ -4,7 +4,6 @@ processed_dir: data/processed
 artifacts_dir: artifacts
 models_dir: artifacts/models
 evaluation_dir: artifacts/evaluation
-predictions_dir: data/predictions
 predictions_path: data/predictions/predictions.csv
 simulation_state: data/simulation_state.json
 retrain_marker: data/last_retrain.json
