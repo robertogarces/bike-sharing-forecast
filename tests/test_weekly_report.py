@@ -45,6 +45,8 @@ def test_build_weekly_digest_no_drift_no_retrain_with_performance():
         "mae": 20.1,
         "rmsle": 0.15,
         "r2": 0.89,
+        "naive_rmse": 65.0,
+        "skill_vs_naive": 0.5,
     }
 
     digest = build_weekly_digest(drift_summary, retrain_outcome, performance_summary)
@@ -55,6 +57,7 @@ def test_build_weekly_digest_no_drift_no_retrain_with_performance():
     assert "RMSE: 32.50" in digest
     assert "R²: 0.8900" in digest
     assert "Live vs. baseline RMSE: 32.50 vs 30.00 (stable)" in digest
+    assert "vs seasonal-naive: 32.50 vs 65.00 RMSE (+50.0% skill)" in digest
 
 
 def test_build_weekly_digest_drift_detected_and_retrain_promoted():

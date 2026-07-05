@@ -83,18 +83,24 @@ def _format_performance_section(performance_summary: dict | None) -> str:
     if performance_summary is None:
         return "## Live Performance\n\nNot available yet — no resolved predictions to score."
 
-    return "\n".join(
-        [
-            "## Live Performance",
-            "",
-            f"- Window: last {int(performance_summary['n_hours'])}h "
-            f"({int(performance_summary['n_resolved'])} resolved predictions)",
-            f"- RMSE: {performance_summary['rmse']:.2f}",
-            f"- MAE: {performance_summary['mae']:.2f}",
-            f"- RMSLE: {performance_summary['rmsle']:.4f}",
-            f"- R²: {performance_summary['r2']:.4f}",
-        ]
-    )
+    lines = [
+        "## Live Performance",
+        "",
+        f"- Window: last {int(performance_summary['n_hours'])}h "
+        f"({int(performance_summary['n_resolved'])} resolved predictions)",
+        f"- RMSE: {performance_summary['rmse']:.2f}",
+        f"- MAE: {performance_summary['mae']:.2f}",
+        f"- RMSLE: {performance_summary['rmsle']:.4f}",
+        f"- R²: {performance_summary['r2']:.4f}",
+    ]
+    naive_rmse = performance_summary.get("naive_rmse")
+    skill = performance_summary.get("skill_vs_naive")
+    if pd.notna(naive_rmse) and pd.notna(skill):
+        lines.append(
+            f"- vs seasonal-naive: {performance_summary['rmse']:.2f} vs {naive_rmse:.2f} "
+            f"RMSE ({skill:+.1%} skill)"
+        )
+    return "\n".join(lines)
 
 
 def build_weekly_digest(

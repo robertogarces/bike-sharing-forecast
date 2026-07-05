@@ -43,6 +43,22 @@ def load_actuals(raw_dir: Path, input_file: str) -> pd.DataFrame:
     return df[["timestamp_predicted", "cnt"]].rename(columns={"cnt": "actual_total"})
 
 
+def build_seasonal_naive(actuals: pd.DataFrame) -> pd.DataFrame:
+    """
+    Seasonal-naive baseline: the prediction for hour t is the actual demand at
+    t - 168h (same hour, previous week) — the canonical trivial baseline for
+    hourly demand, and the same signal the model's own fallback uses.
+
+    Returned as [timestamp_predicted, naive_pred], ready to left-merge onto the
+    joined frame. Horizon-agnostic: the t-168h actual is always available no
+    matter how far ahead the model predicts, so this comparison needs no change
+    if the forecast horizon ever changes.
+    """
+    naive = actuals.rename(columns={"actual_total": "naive_pred"}).copy()
+    naive["timestamp_predicted"] = naive["timestamp_predicted"] + pd.Timedelta(hours=168)
+    return naive
+
+
 def join_predictions_with_actuals(
     predictions: pd.DataFrame,
     actuals: pd.DataFrame,
@@ -72,17 +88,33 @@ def compute_rolling_performance(joined: pd.DataFrame, n_hours: int) -> dict:
     Returns
     -------
     dict
-        timestamp, n_hours, n_resolved, and rmse/rmsle/r2/mae.
+        timestamp, n_hours, n_resolved, rmse/rmsle/r2/mae, plus naive_rmse
+        (seasonal-naive baseline over the same window) and skill_vs_naive
+        (fraction the model improves on it). The last two are None until the
+        window has hours with a t-168h actual available.
     """
     recent = joined.sort_values("timestamp_predicted").tail(n_hours)
 
     metrics = compute_metrics(recent["actual_total"].values, recent["pred_total"].values)
+
+    # Seasonal-naive baseline over the rows in the window that have a t-168h
+    # actual. Horizon-agnostic: independent of how far ahead the model predicted.
+    naive_rmse = None
+    if "naive_pred" in recent.columns:
+        scored = recent.dropna(subset=["naive_pred"])
+        if len(scored):
+            naive_rmse = compute_metrics(
+                scored["actual_total"].values, scored["naive_pred"].values
+            )["rmse"]
+    skill_vs_naive = 1 - metrics["rmse"] / naive_rmse if naive_rmse else None
 
     return {
         "timestamp": datetime.now().isoformat(),
         "n_hours": n_hours,
         "n_resolved": len(recent),
         **metrics,
+        "naive_rmse": naive_rmse,
+        "skill_vs_naive": skill_vs_naive,
     }
 
 
@@ -100,6 +132,7 @@ def main(cfg: DictConfig) -> None:
     actuals = load_actuals(raw_dir, cfg.paths.input_file)
 
     joined = join_predictions_with_actuals(predictions, actuals)
+    joined = joined.merge(build_seasonal_naive(actuals), on="timestamp_predicted", how="left")
     logger.info(f"{len(joined):,}/{len(predictions):,} predictions have a known actual")
 
     if joined.empty:
@@ -113,6 +146,11 @@ def main(cfg: DictConfig) -> None:
         f"RMSE: {summary['rmse']:.2f} | MAE: {summary['mae']:.2f} | "
         f"RMSLE: {summary['rmsle']:.4f} | R²: {summary['r2']:.4f}"
     )
+    if summary["naive_rmse"] is not None:
+        logger.info(
+            f"Seasonal-naive RMSE: {summary['naive_rmse']:.2f} | "
+            f"model skill vs naive: {summary['skill_vs_naive']:+.1%}"
+        )
 
     # ── Persist ───────────────────────────────────────────────────────────────
     append_monitoring_record(summary, history_path)
@@ -122,15 +160,17 @@ def main(cfg: DictConfig) -> None:
     setup_mlflow()
     mlflow.set_experiment(cfg.project)
     with mlflow.start_run(run_name="performance_monitoring"):
-        mlflow.log_metrics(
-            {
-                "rmse": summary["rmse"],
-                "mae": summary["mae"],
-                "rmsle": summary["rmsle"],
-                "r2": summary["r2"],
-                "n_resolved": summary["n_resolved"],
-            }
-        )
+        metrics_to_log = {
+            "rmse": summary["rmse"],
+            "mae": summary["mae"],
+            "rmsle": summary["rmsle"],
+            "r2": summary["r2"],
+            "n_resolved": summary["n_resolved"],
+        }
+        if summary["naive_rmse"] is not None:
+            metrics_to_log["naive_rmse"] = summary["naive_rmse"]
+            metrics_to_log["skill_vs_naive"] = summary["skill_vs_naive"]
+        mlflow.log_metrics(metrics_to_log)
         mlflow.log_param("n_hours", summary["n_hours"])
         logger.info("Logged live performance metrics to MLflow")
 
