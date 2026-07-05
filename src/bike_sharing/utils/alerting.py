@@ -78,12 +78,15 @@ def send_email(subject: str, body: str, to: str) -> None:
     """
     Send an email via Gmail SMTP. A missing/invalid credential is logged and
     swallowed rather than raised — a misconfigured secret shouldn't fail the
-    predict/retrain job this alert is attached to.
+    predict/retrain job this alert is attached to. Also printed as a GitHub
+    Actions warning annotation, since a plain log line is easy to miss — the
+    run still shows green with no visible sign the alert was never delivered.
     """
     username = os.environ.get("SMTP_USERNAME")
     password = os.environ.get("SMTP_PASSWORD")
     if not username or not password:
         logger.error("SMTP_USERNAME/SMTP_PASSWORD not set — skipping email")
+        print(f"::warning::Email alert '{subject}' not sent — SMTP credentials not set")
         return
 
     msg = MIMEText(_markdown_to_html(body), "html")
@@ -99,3 +102,4 @@ def send_email(subject: str, body: str, to: str) -> None:
         logger.info(f"Email sent to {to}: {subject}")
     except Exception as e:
         logger.error(f"Failed to send email: {e}")
+        print(f"::warning::Failed to send email alert '{subject}': {e}")
