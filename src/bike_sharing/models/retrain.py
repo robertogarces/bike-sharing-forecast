@@ -22,8 +22,6 @@ logger = logging.getLogger(__name__)
 
 
 def should_retrain(drift_flag_path: Path, force: bool) -> bool:
-    import json
-
     if force:
         logger.info("Force retrain — skipping drift check")
         return True
