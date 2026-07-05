@@ -1,29 +1,5 @@
 schema: '2.0'
 stages:
-  make_dataset:
-    cmd: python src/bike_sharing/data/make_dataset.py
-    deps:
-    - path: configs/config.yaml
-      hash: md5
-      md5: d12e1e0773c53497fb3aa2820c4f6ba2
-      size: 134
-    - path: configs/dataset/kaggle.yaml
-      hash: md5
-      md5: e85c46b3314ef067517fce4cffc0f28c
-      size: 123
-    - path: src/bike_sharing/data/make_dataset.py
-      hash: md5
-      md5: 401e627542175acc2912c08378f8c0cc
-      size: 858
-    outs:
-    - path: data/raw/day.csv
-      hash: md5
-      md5: fc9dd35812a1ee180fe17e6ef72a4121
-      size: 57569
-    - path: data/raw/hour.csv
-      hash: md5
-      md5: d50bd5a6f55131e72a7bedc334e2fce1
-      size: 1156736
   build_features:
     cmd: python src/bike_sharing/features/build_features.py
     deps:
@@ -137,35 +113,3 @@ stages:
       hash: md5
       md5: 302da780e6419818b99d056487742426
       size: 171740
-  shift_dates:
-    cmd: python src/bike_sharing/data/shift_dates.py
-    deps:
-    - path: configs/config.yaml
-      hash: md5
-      md5: d12e1e0773c53497fb3aa2820c4f6ba2
-      size: 134
-    - path: configs/simulation/default.yaml
-      hash: md5
-      md5: 9579ea3ff2c5f76f5b9dc6dc07f44846
-      size: 210
-    - path: data/raw/hour.csv
-      hash: md5
-      md5: d50bd5a6f55131e72a7bedc334e2fce1
-      size: 1156736
-    - path: src/bike_sharing/data/shift_dates.py
-      hash: md5
-      md5: 8d0ffbda043419bc55f5b1fb699318c2
-      size: 5864
-    outs:
-    - path: data/raw/hour_future.csv
-      hash: md5
-      md5: d9e3304c9a7a8df1ea8c81a10de7481b
-      size: 118444
-    - path: data/raw/hour_past.csv
-      hash: md5
-      md5: cbdd41a004ea3a42d021979af08dd1c5
-      size: 1025982
-    - path: data/raw/hour_shifted.csv
-      hash: md5
-      md5: 6114bfa0dfc6e01d0496c01b415a7fda
-      size: 1144308
