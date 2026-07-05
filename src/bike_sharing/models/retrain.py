@@ -292,6 +292,13 @@ def promote_best_combination(
     prediction worse: an alias only moves if another combination strictly beats
     it. combos is None on bootstrap (no production pair yet) → promote both new.
 
+    When an alias actually moves, the deployed pair's combined RMSE is frozen
+    as a "combined_rmse_baseline" tag on the registered production version —
+    the baseline get_production_baseline_rmse reads. It is deliberately NOT
+    refreshed when nothing is promoted: re-tagging on every attempt would let
+    the baseline follow the data distribution, dulling is_performance_degraded
+    exactly when the model is getting worse.
+
     Returns {"registered": bool, "casual": bool} — whether each slot moved to
     the newly trained version.
     """
@@ -330,6 +337,19 @@ def promote_best_combination(
             # production alias untouched.
             client.set_registered_model_alias(name, "archived", new_version)
             promotions[slot] = False
+
+    if promotions["registered"] or promotions["casual"]:
+        registered_prod_version = (
+            new_versions["registered"].version
+            if promotions["registered"]
+            else client.get_model_version_by_alias(slots["registered"], "production").version
+        )
+        client.set_model_version_tag(
+            slots["registered"],
+            registered_prod_version,
+            "combined_rmse_baseline",
+            str(combos[decision]),
+        )
 
     return promotions
 
@@ -501,18 +521,6 @@ def main(cfg: DictConfig) -> None:
         promotions = promote_best_combination(client, cfg.project, combos)
         outcome["promoted_registered"] = promotions["registered"]
         outcome["promoted_casual"] = promotions["casual"]
-
-        if combos is not None:
-            baseline_rmse = combos[choose_best_combination(combos)]
-            prod_version = client.get_model_version_by_alias(
-                f"{cfg.project}-registered", "production"
-            )
-            client.set_model_version_tag(
-                f"{cfg.project}-registered",
-                prod_version.version,
-                "combined_rmse_baseline",
-                str(baseline_rmse),
-            )
 
         if promotions["registered"] or promotions["casual"]:
             logger.info(

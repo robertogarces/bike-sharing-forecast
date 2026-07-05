@@ -375,6 +375,7 @@ class _FakeMlflowClient:
         self.versions = versions
         self.production = production
         self.alias_calls = []  # list of (model_name, alias, version)
+        self.tag_calls = []  # list of (model_name, version, key, value)
 
     def search_model_versions(self, filter_str):
         name = filter_str.split("'")[1]
@@ -385,6 +386,9 @@ class _FakeMlflowClient:
 
     def set_registered_model_alias(self, name, alias, version):
         self.alias_calls.append((name, alias, version))
+
+    def set_model_version_tag(self, name, version, key, value):
+        self.tag_calls.append((name, version, key, value))
 
 
 def test_promote_best_combination_bootstraps_when_no_production():
@@ -400,6 +404,7 @@ def test_promote_best_combination_bootstraps_when_no_production():
     assert promotions == {"registered": True, "casual": True}
     assert (f"{project}-registered", "production", "3") in client.alias_calls
     assert (f"{project}-casual", "production", "3") in client.alias_calls
+    assert client.tag_calls == []
 
 
 def test_promote_best_combination_promotes_mixed_pair():
@@ -430,6 +435,33 @@ def test_promote_best_combination_promotes_mixed_pair():
         name == f"{project}-casual" and alias == "production"
         for (name, alias, _) in client.alias_calls
     )
+    # Deployed pair changed → baseline must be refreshed with the real
+    # combined RMSE of the winning (mixed) combination, tagged on
+    # registered's new production version.
+    assert client.tag_calls == [(f"{project}-registered", "5", "combined_rmse_baseline", "0.0")]
+
+
+def test_promote_best_combination_tags_baseline_on_registered_current_version_when_only_casual_moves():
+    """
+    When only casual is promoted, registered's alias never moves — the tag
+    must land on registered's EXISTING production version, not a new one.
+    """
+    project = "bike-sharing-forecast"
+    client = _FakeMlflowClient(
+        versions={f"{project}-registered": "5", f"{project}-casual": "5"},
+        production={f"{project}-registered": "4", f"{project}-casual": "4"},
+    )
+    combos = {
+        ("new", "new"): 30.0,
+        ("new", "prod"): 50.0,
+        ("prod", "new"): 0.0,  # winner: prod registered + new casual
+        ("prod", "prod"): 20.0,
+    }
+
+    promotions = promote_best_combination(client, project, combos)
+
+    assert promotions == {"registered": False, "casual": True}
+    assert client.tag_calls == [(f"{project}-registered", "4", "combined_rmse_baseline", "0.0")]
 
 
 def test_promote_best_combination_keeps_production_when_it_wins():
@@ -455,6 +487,10 @@ def test_promote_best_combination_keeps_production_when_it_wins():
     assert (f"{project}-registered", "archived", "5") in client.alias_calls
     assert (f"{project}-casual", "archived", "5") in client.alias_calls
     assert not any(alias == "production" for (_, alias, _) in client.alias_calls)
+    # Nothing was deployed — the baseline must NOT be touched, otherwise it
+    # would drift with the current val set instead of staying pinned to the
+    # unchanged production pair's actual promotion-time RMSE.
+    assert client.tag_calls == []
 
 
 # ── snapshot_drift_reference ──────────────────────────────────────────────────
