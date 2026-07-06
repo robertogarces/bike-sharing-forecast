@@ -1,0 +1,2 @@
+timestamp,n_features,n_drifted,drift_share,drift_detected,threshold
+2026-07-06T02:31:54.594815,19,12,0.6316,True,0.5

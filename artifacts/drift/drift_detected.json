@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-07-03T11:53:21.793903",
+  "timestamp": "2026-07-06T02:31:54.594815",
   "n_features": 19,
   "n_drifted": 12,
   "drift_share": 0.6316,
@@ -83,7 +83,7 @@
     },
     "hum": {
       "stattest": "K-S p_value",
-      "score": 0.0023,
+      "score": 0.0,
       "drifted": true
     },
     "is_rush_hour": {
@@ -98,7 +98,7 @@
     },
     "weathersit": {
       "stattest": "chi-square p_value",
-      "score": 0.0608,
+      "score": 0.0821,
       "drifted": false
     }
   }
