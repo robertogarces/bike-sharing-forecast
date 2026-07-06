@@ -322,6 +322,38 @@ def test_predict_trajectory_targets_are_consecutive_hours():
     assert trajectory["timestamp_predicted"].tolist() == expected
 
 
+def test_predict_trajectory_horizon_maps_to_clock_hour():
+    """
+    Explicit per-row guard on the (horizon -> clock hour) pairing, not just
+    row order: from an origin at 10:00, the horizon=k row must carry the
+    timestamp origin + k hours (h+1 -> 11:00, h+3 -> 13:00, h+4 -> 14:00, ...).
+    """
+    # Past ending exactly at 10:00 so the scenario reads literally
+    # (2024-01-01 00:00 + 202h = 2024-01-09 10:00).
+    n = 203
+    dates, past = _make_past(n)
+    origin = dates[-1]
+    assert origin.hour == 10
+
+    calendar_lookup, weather_lookup = _lookups(past)
+    trajectory = predict_trajectory(
+        past,
+        _IncrementingModel(),
+        _ZeroModel(),
+        6,
+        pd.to_datetime(past["dteday"]).min(),
+        LAGS,
+        ROLLING_WINDOWS,
+        DROP_COLS,
+        calendar_lookup,
+        weather_lookup,
+    )
+
+    for horizon, ts in zip(trajectory["horizon"], trajectory["timestamp_predicted"]):
+        assert ts == origin + pd.Timedelta(hours=int(horizon))
+        assert ts.hour == (origin.hour + int(horizon)) % 24
+
+
 def test_predict_trajectory_uses_true_calendar_across_day_boundary():
     """A rollout must reflect the real calendar of each future hour, read from
     the lookup, not the origin's — this is what makes multi-hour trajectories
