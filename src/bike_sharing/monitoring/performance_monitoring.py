@@ -28,6 +28,13 @@ def load_predictions(pred_path: Path) -> pd.DataFrame:
     df["timestamp_predicted"] = pd.to_datetime(df["timestamp_predicted"], format="ISO8601")
     if "prediction_source" in df.columns:
         df = df[df["prediction_source"] != "fallback_lag168"]
+    # Multi-horizon: each run emits K rows (one per lead time). Rows written
+    # before this change have no horizon column — they were all next-hour
+    # predictions, so they read as horizon=1.
+    if "horizon" not in df.columns:
+        df["horizon"] = 1
+    else:
+        df["horizon"] = df["horizon"].fillna(1).astype(int)
     return df
 
 
@@ -118,6 +125,35 @@ def compute_rolling_performance(joined: pd.DataFrame, n_hours: int) -> dict:
     }
 
 
+def compute_rolling_performance_by_horizon(joined: pd.DataFrame, n_hours: int) -> list[dict]:
+    """
+    Per-horizon performance: group the joined frame by lead time and compute
+    the rolling summary within each horizon separately.
+
+    Multi-horizon serving means each target hour carries K predictions, one
+    per lead time — and error grows with the horizon, so a single pooled RMSE
+    would be meaningless (it would mix h+1 with h+K). Each horizon is its own
+    series: grouping first, then windowing to the most recent n_hours within
+    the group, keeps the window per-horizon rather than mixing lead times.
+
+    The seasonal-naive baseline is horizon-independent (cnt(t-168h) for the
+    target hour), so it's already correct inside each group — compared against
+    every horizon without change.
+
+    Returns
+    -------
+    list[dict]
+        One compute_rolling_performance summary per horizon present, each with
+        an added "horizon" key, ordered by horizon.
+    """
+    summaries = []
+    for horizon, group in joined.groupby("horizon"):
+        summary = compute_rolling_performance(group, n_hours)
+        summary["horizon"] = int(horizon)
+        summaries.append(summary)
+    return summaries
+
+
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     raw_dir = Path(cfg.paths.raw_dir)
@@ -139,40 +175,45 @@ def main(cfg: DictConfig) -> None:
         logger.warning("No resolved predictions yet — skipping performance monitoring")
         return
 
-    # ── Compute rolling performance ──────────────────────────────────────────
-    summary = compute_rolling_performance(joined, n_hours)
-    logger.info(
-        f"Live performance (last {summary['n_hours']}h, {summary['n_resolved']} resolved) — "
-        f"RMSE: {summary['rmse']:.2f} | MAE: {summary['mae']:.2f} | "
-        f"RMSLE: {summary['rmsle']:.4f} | R²: {summary['r2']:.4f}"
-    )
-    if summary["naive_rmse"] is not None:
+    # ── Compute rolling performance per horizon ──────────────────────────────
+    summaries = compute_rolling_performance_by_horizon(joined, n_hours)
+    for summary in summaries:
+        skill = (
+            f" | skill vs naive: {summary['skill_vs_naive']:+.1%}"
+            if summary["naive_rmse"] is not None
+            else ""
+        )
         logger.info(
-            f"Seasonal-naive RMSE: {summary['naive_rmse']:.2f} | "
-            f"model skill vs naive: {summary['skill_vs_naive']:+.1%}"
+            f"h+{summary['horizon']:<2d} (last {summary['n_hours']}h, "
+            f"{summary['n_resolved']} resolved) — RMSE: {summary['rmse']:.2f} | "
+            f"MAE: {summary['mae']:.2f} | R²: {summary['r2']:.4f}{skill}"
         )
 
     # ── Persist ───────────────────────────────────────────────────────────────
-    append_monitoring_record(summary, history_path)
-    logger.info(f"Performance record appended to {history_path}")
+    # One record per (timestamp, horizon) — the horizon column lets downstream
+    # consumers pick a lead time (e.g. the retrain gate filters to h+1).
+    for summary in summaries:
+        append_monitoring_record(summary, history_path)
+    logger.info(f"{len(summaries)} per-horizon performance records appended to {history_path}")
 
     # ── Log to MLflow ─────────────────────────────────────────────────────────
+    # step=horizon logs each metric as a curve over lead time — the
+    # error-vs-horizon and skill-vs-horizon curves render natively in the UI.
     setup_mlflow()
     mlflow.set_experiment(cfg.project)
     with mlflow.start_run(run_name="performance_monitoring"):
-        metrics_to_log = {
-            "rmse": summary["rmse"],
-            "mae": summary["mae"],
-            "rmsle": summary["rmsle"],
-            "r2": summary["r2"],
-            "n_resolved": summary["n_resolved"],
-        }
-        if summary["naive_rmse"] is not None:
-            metrics_to_log["naive_rmse"] = summary["naive_rmse"]
-            metrics_to_log["skill_vs_naive"] = summary["skill_vs_naive"]
-        mlflow.log_metrics(metrics_to_log)
-        mlflow.log_param("n_hours", summary["n_hours"])
-        logger.info("Logged live performance metrics to MLflow")
+        for summary in summaries:
+            h = summary["horizon"]
+            mlflow.log_metric("rmse", summary["rmse"], step=h)
+            mlflow.log_metric("mae", summary["mae"], step=h)
+            mlflow.log_metric("rmsle", summary["rmsle"], step=h)
+            mlflow.log_metric("r2", summary["r2"], step=h)
+            mlflow.log_metric("n_resolved", summary["n_resolved"], step=h)
+            if summary["naive_rmse"] is not None:
+                mlflow.log_metric("naive_rmse", summary["naive_rmse"], step=h)
+                mlflow.log_metric("skill_vs_naive", summary["skill_vs_naive"], step=h)
+        mlflow.log_param("n_hours", n_hours)
+        logger.info(f"Logged per-horizon performance metrics to MLflow ({len(summaries)} horizons)")
 
 
 if __name__ == "__main__":
