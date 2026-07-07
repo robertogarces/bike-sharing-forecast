@@ -178,21 +178,36 @@ def is_performance_degraded(
     performance_history_path: Path,
     baseline_rmse: float | None,
     degradation_threshold: float,
+    primary_horizon: int = 1,
 ) -> tuple[bool, float | None]:
     """
-    Compara el RMSE rodante más reciente (última fila de
-    performance_history.csv, escrito semanalmente por
-    performance_monitoring.py) contra el RMSE de validación del modelo en
-    producción al momento de su promoción.
+    Compare the most recent rolling RMSE at primary_horizon (the last row for
+    that lead time in performance_history.csv, written per-horizon by
+    performance_monitoring.py) against the production model's validation RMSE
+    at promotion time.
 
-    Returns (degraded, live_rmse). degraded es siempre False si no hay
-    baseline o no hay historial de performance todavía (arranque en frío) —
-    live_rmse es None en esos casos.
+    Only primary_horizon (h+1) is comparable to the baseline: the baseline is a
+    single-step validation RMSE, while longer horizons carry recursive-rollout
+    error and would read as permanently "degraded" against it. Rows written
+    before the multi-horizon change have no horizon column — treated as
+    horizon=1, which is what they were.
+
+    Returns (degraded, live_rmse). degraded is always False when there is no
+    baseline, no performance history yet, or no row at primary_horizon (cold
+    start) — live_rmse is None in those cases.
     """
     if baseline_rmse is None or not performance_history_path.exists():
         return False, None
 
     df = pd.read_csv(performance_history_path)
+    if df.empty:
+        return False, None
+
+    if "horizon" not in df.columns:
+        df["horizon"] = 1
+    else:
+        df["horizon"] = df["horizon"].fillna(1).astype(int)
+    df = df[df["horizon"] == primary_horizon]
     if df.empty:
         return False, None
 
@@ -433,6 +448,7 @@ def main(cfg: DictConfig) -> None:
             performance_history_path,
             baseline_rmse,
             cfg.monitoring.performance_degradation_threshold,
+            cfg.forecast.primary_horizon,
         )
         outcome["performance_degraded"] = performance_degraded
         outcome["baseline_rmse"] = baseline_rmse

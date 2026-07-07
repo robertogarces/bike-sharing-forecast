@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 import hydra
 from pathlib import Path
 
+from bike_sharing.models.train import compute_metrics
 from bike_sharing.utils.datetime_utils import reconstruct_datetime
 from bike_sharing.utils.mlflow_utils import setup_mlflow
 
@@ -25,11 +26,11 @@ with hydra.initialize(config_path="../../../configs", version_base=None):
 
 PREDICTIONS = ROOT / cfg.paths.predictions_path
 PAST = ROOT / cfg.paths.raw_dir / cfg.paths.input_file
-METRICS = ROOT / cfg.paths.evaluation_dir / "metrics.json"
-STATE = ROOT / cfg.paths.simulation_state
 MONITORING_DIR = ROOT / cfg.paths.artifacts_dir / "monitoring"
 DRIFT_DIR = ROOT / cfg.paths.artifacts_dir / "drift"
 PROJECT = cfg.project
+PRIMARY_HORIZON = cfg.forecast.primary_horizon
+N_HOURS = cfg.monitoring.n_hours
 
 FALLBACK_SOURCE = "fallback_lag168"
 
@@ -50,19 +51,88 @@ def normalize_retrain_outcome(outcome: dict) -> dict:
     return outcome
 
 
-def compute_gauge_range(actual_total: pd.Series) -> tuple[float, float]:
+def ensure_horizon(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Gauge axis max and warning threshold derived from observed demand, instead
-    of a hardcoded number that silently goes stale as demand grows (the
-    historical max is already 977, past a hardcoded 900 range). Axis tops out
-    10% above the historical max, rounded up to the nearest 50; threshold is
-    the 90th percentile of historical demand.
+    Guarantee a horizon column. Rows written before multi-horizon serving have
+    none — they were all next-hour predictions, so they read as horizon=1.
     """
-    if actual_total.empty:
-        return 900.0, 700.0
-    axis_max = float(((actual_total.max() * 1.1) // 50 + 1) * 50)
-    threshold = float(actual_total.quantile(0.9))
-    return axis_max, threshold
+    df = df.copy()
+    if "horizon" not in df.columns:
+        df["horizon"] = 1
+    else:
+        df["horizon"] = df["horizon"].fillna(1).astype(int)
+    return df
+
+
+def latest_trajectory(predictions: pd.DataFrame) -> pd.DataFrame:
+    """
+    The most recent origin's full forecast (h+1..h+K), sorted by horizon — the
+    current demand profile shown as the trajectory.
+
+    A row's origin is timestamp_predicted - horizon hours; every row of one
+    run's rollout shares that origin, so the max origin selects the latest run
+    (whether it was live model output or a fallback trajectory).
+    """
+    if predictions.empty:
+        return predictions
+    df = ensure_horizon(predictions)
+    df["origin"] = df["timestamp_predicted"] - pd.to_timedelta(df["horizon"], unit="h")
+    latest_origin = df["origin"].max()
+    return df[df["origin"] == latest_origin].sort_values("horizon").reset_index(drop=True)
+
+
+def filter_to_horizon(predictions: pd.DataFrame, horizon: int) -> pd.DataFrame:
+    """
+    Rows at a single lead time — one prediction per target hour. The series used
+    for the history-vs-actual view and the performance-over-time chart, where
+    mixing lead times would double-count hours and blur the signal.
+    """
+    if predictions.empty:
+        return predictions
+    df = ensure_horizon(predictions)
+    return df[df["horizon"] == horizon].reset_index(drop=True)
+
+
+def latest_per_horizon(history: pd.DataFrame) -> pd.DataFrame:
+    """
+    Most recent record per horizon — the current error/skill-vs-horizon curve
+    from performance_history.csv (which now holds one row per (run, horizon)).
+    """
+    if history.empty:
+        return history
+    df = ensure_horizon(history)
+    return df.groupby("horizon").tail(1).sort_values("horizon").reset_index(drop=True)
+
+
+def live_model_metrics(
+    predictions: pd.DataFrame, actuals: pd.DataFrame, n_hours: int
+) -> dict | None:
+    """
+    RMSE/RMSLE/MAE/R² for the combined total and each sub-model (registered,
+    casual), over the most recent n_hours of resolved primary-horizon
+    predictions — the same window and method performance_monitoring uses, so
+    the combined figure matches the pipeline's methodology.
+
+    performance_history.csv only stores the combined metric; the per-model
+    figures are computed here from pred_registered/pred_casual against their
+    actuals (available in hour_past.csv). Returns None until there is at least
+    one resolved model prediction (fallback rows excluded).
+    """
+    if predictions.empty or actuals.empty:
+        return None
+    h1 = filter_to_horizon(predictions, PRIMARY_HORIZON)
+    h1 = h1[h1["prediction_source"] != FALLBACK_SOURCE]
+    joined = h1.merge(actuals, on="timestamp_predicted", how="inner")
+    joined = joined.sort_values("timestamp_predicted").tail(n_hours)
+    if joined.empty:
+        return None
+    return {
+        "Combined": compute_metrics(joined["actual_total"].values, joined["pred_total"].values),
+        "Registered": compute_metrics(
+            joined["actual_registered"].values, joined["pred_registered"].values
+        ),
+        "Casual": compute_metrics(joined["actual_casual"].values, joined["pred_casual"].values),
+    }
 
 
 # ── Load data — Operations ─────────────────────────────────────────────────────
@@ -85,25 +155,14 @@ def load_actuals() -> pd.DataFrame:
         return pd.DataFrame()
     df = pd.read_csv(PAST, parse_dates=["dteday"])
     df = reconstruct_datetime(df)
-    return df[["datetime", "cnt"]].rename(
-        columns={"datetime": "timestamp_predicted", "cnt": "actual_total"}
+    return df[["datetime", "cnt", "registered", "casual"]].rename(
+        columns={
+            "datetime": "timestamp_predicted",
+            "cnt": "actual_total",
+            "registered": "actual_registered",
+            "casual": "actual_casual",
+        }
     )
-
-
-@st.cache_data(ttl=300)
-def load_metrics() -> dict:
-    if not METRICS.exists():
-        return {}
-    with open(METRICS) as f:
-        return json.load(f)
-
-
-@st.cache_data(ttl=300)
-def load_state() -> dict:
-    if not STATE.exists():
-        return {}
-    with open(STATE) as f:
-        return json.load(f)
 
 
 # ── Load data — Monitoring ──────────────────────────────────────────────────────
@@ -164,240 +223,165 @@ def load_history_csv(filename: str) -> pd.DataFrame:
     return df.sort_values("timestamp")
 
 
+def _inject_styles(subtitle: str, live_ring: bool = False) -> None:
+    """
+    Shared page chrome so Operations and Monitoring read as one system: a
+    prominent subtitle (same size/color on both), a tighter top margin so the
+    title starts high, and enlarged KPI metrics scoped to the first metric row
+    on the page. live_ring adds the spinning "live" indicator before the first
+    KPI's label (used only on Operations' "Now" metric).
+    """
+    first_row = '[data-testid="stHorizontalBlock"]:first-of-type'
+    ring = (
+        f"{first_row} > div:first-child "
+        '[data-testid="stMetricLabel"] p::before{content:"";display:inline-block;'
+        "width:10px;height:10px;border:2px solid rgba(46,204,113,0.30);"
+        "border-top-color:#2ECC71;border-radius:50%;margin-right:7px;"
+        "vertical-align:middle;animation:live-spin 2.2s linear infinite;}"
+        "@keyframes live-spin{to{transform:rotate(360deg);}}"
+        if live_ring
+        else ""
+    )
+    st.markdown(
+        f"<div style='font-size:1.6rem;font-weight:600;color:#4a5b6b;margin-top:-6px;"
+        f"margin-bottom:2px'>{subtitle}</div>"
+        "<style>"
+        ".block-container{padding-top:2rem;padding-bottom:1rem;}"
+        f'{first_row} [data-testid="stMetricValue"]{{font-size:2.4rem;}}'
+        f'{first_row} [data-testid="stMetricLabel"] p{{font-size:1.15rem;font-weight:600;}}'
+        f'{first_row} [data-testid="stMetricDelta"]{{font-size:1.05rem;}}'
+        f"{ring}"
+        "</style>",
+        unsafe_allow_html=True,
+    )
+
+
 # ── Page: Operations ────────────────────────────────────────────────────────────
 def render_operations():
     st.title("🚲 Bike Sharing — Operations Dashboard")
-    st.caption("Next-hour demand forecasting system · Predictions update every hour")
 
     predictions = load_predictions()
     actuals = load_actuals()
-    metrics = load_metrics()
-    state = load_state()
 
     if predictions.empty:
         st.warning("No predictions available yet. Run predict.py first.")
         return
 
-    # ── Sidebar ───────────────────────────────────────────────────────────────
-    with st.sidebar:
-        st.header("Model Performance")
-        st.caption("How accurate is the model?")
+    # With multi-horizon serving, the latest run emits h+1..h+K from one origin.
+    # The next-hour headline is that run's primary-horizon row (not
+    # predictions.iloc[-1], which is now the farthest-out h+K target).
+    trajectory = latest_trajectory(predictions)
+    primary_rows = trajectory[trajectory["horizon"] == PRIMARY_HORIZON]
+    next_row = primary_rows.iloc[0] if not primary_rows.empty else trajectory.iloc[0]
+    next_hr = next_row["timestamp_predicted"]
+    is_fallback = next_row["prediction_source"] == FALLBACK_SOURCE
 
-        if metrics:
-            rmse = metrics.get("rmse", 0)
-            rmsle = metrics.get("rmsle", 0)
-            r2 = metrics.get("r2", 0)
+    _inject_styles(f"Next {len(trajectory)} hours forecast", live_ring=True)
 
-            st.metric("RMSE", f"{rmse:.1f} bikes")
-            st.caption(f"On average, the model is off by **{rmse:.0f} bikes per hour**.")
-
-            st.metric("RMSLE", f"{rmsle:.4f}")
-            st.caption(f"The model has an average relative error of **{rmsle * 100:.1f}%**.")
-
-            st.metric("R²", f"{r2:.4f}")
-            st.caption(f"The model explains **{r2 * 100:.1f}%** of demand variability.")
-
-        st.divider()
-        st.header("Simulation Status")
-
-        if state:
-            future_end = pd.Timestamp(state.get("future_end_date", ""))
-            total_future = state.get("n_future_records", 0)
-            remaining = (
-                len(pd.read_csv(ROOT / "data" / "raw" / "hour_future.csv"))
-                if (ROOT / "data" / "raw" / "hour_future.csv").exists()
-                else 0
-            )
-            pct_used = (total_future - remaining) / total_future * 100 if total_future > 0 else 0
-
-            st.progress(pct_used / 100)
-            st.caption(f"Simulation: {pct_used:.1f}% complete")
-            st.caption(f"Data available until: **{future_end.strftime('%b %d, %Y')}**")
-
-    # ── Next hour prediction ──────────────────────────────────────────────────
-    latest = predictions.iloc[-1]
-    next_hr = latest["timestamp_predicted"]
-    pred_total = latest["pred_total"]
-    is_fallback = latest["prediction_source"] == FALLBACK_SOURCE
-
-    st.subheader(f"Next Hour Forecast — {next_hr.strftime('%A %b %d, %H:%M')}")
     if is_fallback:
         st.warning(
-            "⚠️ This is a **fallback prediction** (168h-lag), not live model output — "
+            "⚠️ The next-hour value is a **fallback** (168h-lag), not live model output — "
             "hourly data validation failed for this hour."
         )
 
-    col1, col2, col3 = st.columns([2, 1, 1])
+    # ── Headline KPIs — what the operator acts on ─────────────────────────────
+    peak = trajectory.loc[trajectory["pred_total"].idxmax()]
+    low = trajectory.loc[trajectory["pred_total"].idxmin()]
+    current_demand = float(actuals["actual_total"].iloc[-1]) if not actuals.empty else None
+    current_ts = actuals["timestamp_predicted"].iloc[-1] if not actuals.empty else None
 
-    gauge_max, gauge_threshold = compute_gauge_range(actuals["actual_total"])
+    def _vs_now(value: float) -> str | None:
+        return f"{value - current_demand:+.0f} vs now" if current_demand is not None else None
 
-    with col1:
-        # Gauge
-        fig_gauge = go.Figure(
-            go.Indicator(
-                mode="gauge+number",
-                value=pred_total,
-                title={"text": "Predicted Bikes Needed", "font": {"size": 18}},
-                gauge={
-                    "axis": {"range": [0, gauge_max]},
-                    "bar": {"color": "#1F77B4" if not is_fallback else "#B0B0B0"},
-                    "steps": [
-                        {"range": [0, gauge_max * 0.22], "color": "#EAF4FB"},
-                        {"range": [gauge_max * 0.22, gauge_max * 0.55], "color": "#AED6F1"},
-                        {"range": [gauge_max * 0.55, gauge_max], "color": "#2E86C1"},
-                    ],
-                    "threshold": {
-                        "line": {"color": "red", "width": 3},
-                        "thickness": 0.75,
-                        "value": gauge_threshold,
-                    },
-                },
-                number={"suffix": " bikes", "font": {"size": 36}},
-            )
+    k0, k1, k2, k3 = st.columns(4)
+    with k0:
+        now_label = f"Now · {current_ts:%H:%M}" if current_ts is not None else "Now"
+        st.metric(now_label, f"{current_demand:.0f} bikes" if current_demand is not None else "—")
+    with k1:
+        st.metric(
+            f"Next hour · {next_hr:%H:%M}",
+            f"{next_row['pred_total']:.0f} bikes",
+            delta=_vs_now(next_row["pred_total"]),
         )
-        fig_gauge.update_layout(height=300, margin=dict(t=40, b=0, l=20, r=20))
-        st.plotly_chart(fig_gauge, use_container_width=True)
-
-    with col2:
-        st.metric("Registered riders", f"{latest['pred_registered']:.0f}")
-        st.caption("Commuters and subscribers")
-
-    with col3:
-        st.metric("Casual riders", f"{latest['pred_casual']:.0f}")
-        st.caption("Tourists and occasional users")
+    with k2:
+        st.metric(
+            f"Next peak · {peak['timestamp_predicted']:%H:%M}",
+            f"{peak['pred_total']:.0f} bikes",
+            delta=_vs_now(peak["pred_total"]),
+        )
+    with k3:
+        st.metric(
+            f"Next quietest · {low['timestamp_predicted']:%H:%M}",
+            f"{low['pred_total']:.0f} bikes",
+            delta=_vs_now(low["pred_total"]),
+        )
 
     st.divider()
 
-    # ── Last 24 hours ─────────────────────────────────────────────────────────
-    st.subheader("Last 24 Hours — Prediction History")
+    # ── Hourly forecast strip ─────────────────────────────────────────────────
+    st.subheader("Hourly Forecast")
 
-    last_24 = predictions.tail(24)
-    last_24_with_actuals = last_24.merge(actuals, on="timestamp_predicted", how="left")
-    model_rows = last_24_with_actuals[last_24_with_actuals["prediction_source"] != FALLBACK_SOURCE]
-    fallback_rows = last_24_with_actuals[
-        last_24_with_actuals["prediction_source"] == FALLBACK_SOURCE
-    ]
+    cols = st.columns(len(trajectory))
+    for col, (_, row) in zip(cols, trajectory.iterrows()):
+        with col:
+            st.markdown(
+                f"<div style='text-align:center;padding:6px 0'>"
+                f"<div style='font-size:0.8rem;color:gray'>{row['timestamp_predicted']:%H:%M}</div>"
+                f"<div style='font-size:1.45rem;font-weight:600'>{row['pred_total']:.0f}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
-    fig_line = go.Figure()
-    fig_line.add_trace(
+    # Breathing room between the hourly strip and the trend chart.
+    st.markdown("<div style='height:22px'></div>", unsafe_allow_html=True)
+
+    # Smooth trend view of the same trajectory.
+    fig_traj = go.Figure()
+    fig_traj.add_trace(
         go.Scatter(
-            x=model_rows["timestamp_predicted"],
-            y=model_rows["pred_total"],
+            x=trajectory["timestamp_predicted"],
+            y=trajectory["pred_total"],
+            customdata=trajectory["horizon"],
             mode="lines+markers",
-            name="Predicted",
             line=dict(color="#1F77B4", width=2),
-            marker=dict(size=6),
+            marker=dict(size=7),
+            fill="tozeroy",
+            fillcolor="rgba(31,119,180,0.12)",
+            hovertemplate="+%{customdata}h · %{x|%a %H:%M}: %{y:.0f} bikes<extra></extra>",
         )
     )
-    if not fallback_rows.empty:
-        fig_line.add_trace(
-            go.Scatter(
-                x=fallback_rows["timestamp_predicted"],
-                y=fallback_rows["pred_total"],
-                mode="markers",
-                name="Fallback (168h-lag)",
-                marker=dict(size=9, symbol="x", color="#B0B0B0"),
-            )
-        )
-    if last_24_with_actuals["actual_total"].notna().any():
-        actuals_known = last_24_with_actuals.dropna(subset=["actual_total"])
-        fig_line.add_trace(
-            go.Scatter(
-                x=actuals_known["timestamp_predicted"],
-                y=actuals_known["actual_total"],
-                mode="lines+markers",
-                name="Actual",
-                line=dict(color="#E74C3C", width=2, dash="dot"),
-                marker=dict(size=6),
-            )
-        )
-    fig_line.update_layout(
+    fig_traj.update_layout(
         xaxis_title="Hour",
         yaxis_title="Bikes",
-        height=300,
-        margin=dict(t=20, b=40, l=40, r=20),
-        legend=dict(orientation="h", y=1.1),
+        height=340,
+        margin=dict(t=10, b=30, l=40, r=20),
+        showlegend=False,
     )
-    st.plotly_chart(fig_line, use_container_width=True)
-
-    # ── Registered vs Casual breakdown ───────────────────────────────────────
-    st.subheader("Demand Breakdown — Registered vs Casual")
-
-    fig_bar = go.Figure()
-    fig_bar.add_trace(
-        go.Bar(
-            x=last_24["timestamp_predicted"],
-            y=last_24["pred_registered"],
-            name="Registered",
-            marker_color="#1F77B4",
-        )
-    )
-    fig_bar.add_trace(
-        go.Bar(
-            x=last_24["timestamp_predicted"],
-            y=last_24["pred_casual"],
-            name="Casual",
-            marker_color="#AED6F1",
-        )
-    )
-    fig_bar.update_layout(
-        barmode="stack",
-        xaxis_title="Hour",
-        yaxis_title="Bikes",
-        height=300,
-        margin=dict(t=20, b=40, l=40, r=20),
-        legend=dict(orientation="h", y=1.1),
-    )
-    st.plotly_chart(fig_bar, use_container_width=True)
-
-    # ── Recent predictions table ──────────────────────────────────────────────
-    st.subheader("Recent Predictions")
-
-    table = predictions.tail(10).copy()
-    table["timestamp_predicted"] = table["timestamp_predicted"].dt.strftime("%Y-%m-%d %H:%M")
-    table["predicted_at"] = table["predicted_at"].dt.strftime("%Y-%m-%d %H:%M")
-    table["Source"] = table["prediction_source"].map(
-        {FALLBACK_SOURCE: "Fallback (168h-lag)", "model": "Model"}
-    )
-    if "model_version_registered" in table.columns:
-        table["Model (Reg/Cas)"] = (
-            table["model_version_registered"].fillna("?").astype(str)
-            + " / "
-            + table["model_version_casual"].fillna("?").astype(str)
-        )
-    else:
-        table["Model (Reg/Cas)"] = "?"
-    table = table[
-        [
-            "timestamp_predicted",
-            "pred_total",
-            "pred_registered",
-            "pred_casual",
-            "temp",
-            "hum",
-            "weathersit",
-            "Source",
-            "Model (Reg/Cas)",
-        ]
-    ].rename(
-        columns={
-            "timestamp_predicted": "Hour",
-            "pred_total": "Total",
-            "pred_registered": "Registered",
-            "pred_casual": "Casual",
-            "temp": "Temp (norm)",
-            "hum": "Humidity (norm)",
-            "weathersit": "Weather",
-        }
-    )
-    table = table.sort_values("Hour", ascending=False).reset_index(drop=True)
-    st.dataframe(table, use_container_width=True)
+    st.plotly_chart(fig_traj, use_container_width=True)
 
 
 # ── Page: Monitoring ────────────────────────────────────────────────────────────
 def render_monitoring():
     st.title("📈 Bike Sharing — Monitoring Dashboard")
-    st.caption("Model status, retraining, drift, and live performance over time")
+    _inject_styles("Model health & live performance")
+
+    # ── Model metrics — live performance at the primary horizon ───────────────
+    st.subheader("Model Metrics")
+    metrics_by_model = live_model_metrics(load_predictions(), load_actuals(), N_HOURS)
+    if metrics_by_model is None:
+        st.info("No resolved model predictions yet — metrics appear once actuals arrive.")
+    else:
+        # The combined row is the first metric block on the page, so the shared
+        # style enlarges it (headline); registered/casual read as supporting rows.
+        for model_name, m in metrics_by_model.items():
+            st.markdown(f"**{model_name}**")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("RMSE", f"{m['rmse']:.1f} bikes")
+            c2.metric("RMSLE", f"{m['rmsle']:.3f}")
+            c3.metric("MAE", f"{m['mae']:.1f} bikes")
+            c4.metric("R²", f"{m['r2']:.3f}")
+
+    st.divider()
 
     # ── Model status ──────────────────────────────────────────────────────────
     st.subheader("Model Status")
@@ -422,7 +406,9 @@ def render_monitoring():
     if not outcome:
         st.info("No retrain outcome recorded yet.")
     else:
-        st.caption(f"As of {outcome.get('timestamp', 'unknown')}")
+        ts = outcome.get("timestamp")
+        when = pd.to_datetime(ts).strftime("%Y-%m-%d %H:%M") if ts else "unknown"
+        st.caption(f"As of {when}")
         if not outcome.get("retrain_attempted"):
             st.write(f"**Attempted:** No — {outcome.get('skip_reason', 'unknown reason')}")
         else:
@@ -448,21 +434,27 @@ def render_monitoring():
 
     st.divider()
 
-    # ── Live performance over time ────────────────────────────────────────────
-    st.subheader("Live Performance Over Time")
+    # ── Live performance over time (primary horizon) ──────────────────────────
+    st.subheader(f"Live Performance Over Time — h+{PRIMARY_HORIZON}")
     perf = load_history_csv("performance_history.csv")
-    if perf.empty:
+    perf_primary = filter_to_horizon(perf, PRIMARY_HORIZON) if not perf.empty else perf
+    if perf_primary.empty:
         st.info("No performance history yet — accumulates weekly.")
     else:
         fig = go.Figure()
         fig.add_trace(
-            go.Scatter(x=perf["timestamp"], y=perf["rmse"], mode="lines+markers", name="Model RMSE")
+            go.Scatter(
+                x=perf_primary["timestamp"],
+                y=perf_primary["rmse"],
+                mode="lines+markers",
+                name="Model RMSE",
+            )
         )
-        if "naive_rmse" in perf.columns and perf["naive_rmse"].notna().any():
+        if "naive_rmse" in perf_primary.columns and perf_primary["naive_rmse"].notna().any():
             fig.add_trace(
                 go.Scatter(
-                    x=perf["timestamp"],
-                    y=perf["naive_rmse"],
+                    x=perf_primary["timestamp"],
+                    y=perf_primary["naive_rmse"],
                     mode="lines+markers",
                     name="Seasonal-naive RMSE",
                     line=dict(dash="dot"),
@@ -472,9 +464,54 @@ def render_monitoring():
             xaxis_title="Week", yaxis_title="RMSE", height=280, margin=dict(t=20, b=40, l=40, r=20)
         )
         st.plotly_chart(fig, use_container_width=True)
-        if "skill_vs_naive" in perf.columns and perf["skill_vs_naive"].notna().any():
-            latest_skill = perf["skill_vs_naive"].dropna().iloc[-1]
+        if (
+            "skill_vs_naive" in perf_primary.columns
+            and perf_primary["skill_vs_naive"].notna().any()
+        ):
+            latest_skill = perf_primary["skill_vs_naive"].dropna().iloc[-1]
             st.caption(f"Latest skill vs. seasonal-naive: **{latest_skill:+.1%}**")
+
+    st.divider()
+
+    # ── Performance by horizon (latest) ───────────────────────────────────────
+    # The multi-horizon payoff: how model accuracy and its edge over the naive
+    # baseline decay as the forecast reaches further ahead.
+    st.subheader("Performance by Horizon — Latest")
+    curve = latest_per_horizon(perf) if not perf.empty else perf
+    if curve.empty or len(curve) <= 1:
+        st.info("Per-horizon curve appears once multi-horizon predictions have been scored.")
+    else:
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(x=curve["horizon"], y=curve["rmse"], mode="lines+markers", name="Model RMSE")
+        )
+        if "naive_rmse" in curve.columns and curve["naive_rmse"].notna().any():
+            fig.add_trace(
+                go.Scatter(
+                    x=curve["horizon"],
+                    y=curve["naive_rmse"],
+                    mode="lines+markers",
+                    name="Seasonal-naive RMSE",
+                    line=dict(dash="dot"),
+                )
+            )
+        fig.update_layout(
+            xaxis_title="Horizon (hours ahead)",
+            yaxis_title="RMSE",
+            height=280,
+            margin=dict(t=20, b=40, l=40, r=20),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        if "skill_vs_naive" in curve.columns and curve["skill_vs_naive"].notna().any():
+            worst = curve.dropna(subset=["skill_vs_naive"])
+            crossover = worst[worst["skill_vs_naive"] <= 0]
+            if not crossover.empty:
+                st.caption(
+                    f"Model falls to parity with seasonal-naive by "
+                    f"**h+{int(crossover['horizon'].iloc[0])}**."
+                )
+            else:
+                st.caption("Model beats seasonal-naive across all served horizons.")
 
     st.divider()
 

@@ -117,3 +117,56 @@ def test_build_weekly_digest_retrain_aborted_by_data_quality_failure():
 
     assert "Data quality check: failed" in digest
     assert "missing column 'hum'" in digest
+
+
+def test_build_weekly_digest_labels_primary_horizon_and_renders_curve():
+    """
+    With multi-horizon inputs, the headline names the primary horizon and a
+    per-horizon skill curve is appended — the multi-horizon payoff in the
+    report.
+    """
+    performance_summary = {
+        "n_hours": 168,
+        "n_resolved": 165,
+        "rmse": 32.5,
+        "mae": 20.1,
+        "rmsle": 0.15,
+        "r2": 0.89,
+        "naive_rmse": 65.0,
+        "skill_vs_naive": 0.5,
+        "horizon": 1,
+    }
+    horizon_curve = [
+        {"horizon": 1, "rmse": 32.5, "skill_vs_naive": 0.5},
+        {"horizon": 2, "rmse": 40.0, "skill_vs_naive": 0.38},
+        {"horizon": 3, "rmse": 45.0, "skill_vs_naive": None},  # no naive coverage
+    ]
+
+    digest = build_weekly_digest(None, None, performance_summary, horizon_curve)
+
+    assert "## Live Performance (primary horizon h+1)" in digest
+    assert "Skill by horizon (latest):" in digest
+    assert "- h+1: RMSE 32.50 (+50.0% skill)" in digest
+    assert "- h+2: RMSE 40.00 (+38.0% skill)" in digest
+    assert "- h+3: RMSE 45.00 (skill n/a)" in digest
+
+
+def test_build_weekly_digest_omits_curve_when_only_one_horizon():
+    """A single-horizon curve adds no information beyond the headline — the
+    per-horizon block is suppressed."""
+    performance_summary = {
+        "n_hours": 168,
+        "n_resolved": 100,
+        "rmse": 30.0,
+        "mae": 18.0,
+        "rmsle": 0.1,
+        "r2": 0.9,
+        "naive_rmse": 60.0,
+        "skill_vs_naive": 0.5,
+        "horizon": 1,
+    }
+    horizon_curve = [{"horizon": 1, "rmse": 30.0, "skill_vs_naive": 0.5}]
+
+    digest = build_weekly_digest(None, None, performance_summary, horizon_curve)
+
+    assert "Skill by horizon" not in digest
