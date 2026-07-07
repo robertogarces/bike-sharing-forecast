@@ -30,6 +30,7 @@ STATE = ROOT / cfg.paths.simulation_state
 MONITORING_DIR = ROOT / cfg.paths.artifacts_dir / "monitoring"
 DRIFT_DIR = ROOT / cfg.paths.artifacts_dir / "drift"
 PROJECT = cfg.project
+PRIMARY_HORIZON = cfg.forecast.primary_horizon
 
 FALLBACK_SOURCE = "fallback_lag168"
 
@@ -63,6 +64,59 @@ def compute_gauge_range(actual_total: pd.Series) -> tuple[float, float]:
     axis_max = float(((actual_total.max() * 1.1) // 50 + 1) * 50)
     threshold = float(actual_total.quantile(0.9))
     return axis_max, threshold
+
+
+def ensure_horizon(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Guarantee a horizon column. Rows written before multi-horizon serving have
+    none — they were all next-hour predictions, so they read as horizon=1.
+    """
+    df = df.copy()
+    if "horizon" not in df.columns:
+        df["horizon"] = 1
+    else:
+        df["horizon"] = df["horizon"].fillna(1).astype(int)
+    return df
+
+
+def latest_trajectory(predictions: pd.DataFrame) -> pd.DataFrame:
+    """
+    The most recent origin's full forecast (h+1..h+K), sorted by horizon — the
+    current demand profile shown as the trajectory.
+
+    A row's origin is timestamp_predicted - horizon hours; every row of one
+    run's rollout shares that origin, so the max origin selects the latest run
+    (whether it was live model output or a fallback trajectory).
+    """
+    if predictions.empty:
+        return predictions
+    df = ensure_horizon(predictions)
+    df["origin"] = df["timestamp_predicted"] - pd.to_timedelta(df["horizon"], unit="h")
+    latest_origin = df["origin"].max()
+    return df[df["origin"] == latest_origin].sort_values("horizon").reset_index(drop=True)
+
+
+def filter_to_horizon(predictions: pd.DataFrame, horizon: int) -> pd.DataFrame:
+    """
+    Rows at a single lead time — one prediction per target hour. The series used
+    for the history-vs-actual view and the performance-over-time chart, where
+    mixing lead times would double-count hours and blur the signal.
+    """
+    if predictions.empty:
+        return predictions
+    df = ensure_horizon(predictions)
+    return df[df["horizon"] == horizon].reset_index(drop=True)
+
+
+def latest_per_horizon(history: pd.DataFrame) -> pd.DataFrame:
+    """
+    Most recent record per horizon — the current error/skill-vs-horizon curve
+    from performance_history.csv (which now holds one row per (run, horizon)).
+    """
+    if history.empty:
+        return history
+    df = ensure_horizon(history)
+    return df.groupby("horizon").tail(1).sort_values("horizon").reset_index(drop=True)
 
 
 # ── Load data — Operations ─────────────────────────────────────────────────────
@@ -167,7 +221,7 @@ def load_history_csv(filename: str) -> pd.DataFrame:
 # ── Page: Operations ────────────────────────────────────────────────────────────
 def render_operations():
     st.title("🚲 Bike Sharing — Operations Dashboard")
-    st.caption("Next-hour demand forecasting system · Predictions update every hour")
+    st.caption("Multi-horizon demand forecasting system · Trajectory refreshes every hour")
 
     predictions = load_predictions()
     actuals = load_actuals()
@@ -214,11 +268,16 @@ def render_operations():
             st.caption(f"Simulation: {pct_used:.1f}% complete")
             st.caption(f"Data available until: **{future_end.strftime('%b %d, %Y')}**")
 
-    # ── Next hour prediction ──────────────────────────────────────────────────
-    latest = predictions.iloc[-1]
-    next_hr = latest["timestamp_predicted"]
-    pred_total = latest["pred_total"]
-    is_fallback = latest["prediction_source"] == FALLBACK_SOURCE
+    # ── Current forecast — most recent origin ─────────────────────────────────
+    # With multi-horizon serving, the latest run emits h+1..h+K. The next-hour
+    # headline is that run's primary-horizon row (not predictions.iloc[-1],
+    # which is now the farthest-out h+K target).
+    trajectory = latest_trajectory(predictions)
+    primary_rows = trajectory[trajectory["horizon"] == PRIMARY_HORIZON]
+    next_row = primary_rows.iloc[0] if not primary_rows.empty else trajectory.iloc[0]
+    next_hr = next_row["timestamp_predicted"]
+    pred_total = next_row["pred_total"]
+    is_fallback = next_row["prediction_source"] == FALLBACK_SOURCE
 
     st.subheader(f"Next Hour Forecast — {next_hr.strftime('%A %b %d, %H:%M')}")
     if is_fallback:
@@ -259,19 +318,48 @@ def render_operations():
         st.plotly_chart(fig_gauge, use_container_width=True)
 
     with col2:
-        st.metric("Registered riders", f"{latest['pred_registered']:.0f}")
+        st.metric("Registered riders", f"{next_row['pred_registered']:.0f}")
         st.caption("Commuters and subscribers")
 
     with col3:
-        st.metric("Casual riders", f"{latest['pred_casual']:.0f}")
+        st.metric("Casual riders", f"{next_row['pred_casual']:.0f}")
         st.caption("Tourists and occasional users")
+
+    # ── Forecast trajectory — next K hours ────────────────────────────────────
+    if len(trajectory) > 1:
+        st.subheader(f"Forecast Trajectory — Next {len(trajectory)} Hours")
+        st.caption("Predicted demand profile from the latest origin — refreshes every hour")
+
+        fig_traj = go.Figure()
+        fig_traj.add_trace(
+            go.Scatter(
+                x=trajectory["timestamp_predicted"],
+                y=trajectory["pred_total"],
+                customdata=trajectory["horizon"],
+                mode="lines+markers",
+                name="Predicted total",
+                line=dict(color="#1F77B4", width=2),
+                marker=dict(size=7),
+                fill="tozeroy",
+                fillcolor="rgba(31,119,180,0.12)",
+                hovertemplate="h+%{customdata}: %{y:.0f} bikes<br>%{x|%a %H:%M}<extra></extra>",
+            )
+        )
+        fig_traj.update_layout(
+            xaxis_title="Hour",
+            yaxis_title="Bikes",
+            height=320,
+            margin=dict(t=20, b=40, l=40, r=20),
+        )
+        st.plotly_chart(fig_traj, use_container_width=True)
 
     st.divider()
 
     # ── Last 24 hours ─────────────────────────────────────────────────────────
     st.subheader("Last 24 Hours — Prediction History")
+    st.caption(f"h+{PRIMARY_HORIZON} predictions vs actual demand")
 
-    last_24 = predictions.tail(24)
+    last_24 = filter_to_horizon(predictions, PRIMARY_HORIZON).tail(24)
     last_24_with_actuals = last_24.merge(actuals, on="timestamp_predicted", how="left")
     model_rows = last_24_with_actuals[last_24_with_actuals["prediction_source"] != FALLBACK_SOURCE]
     fallback_rows = last_24_with_actuals[
@@ -350,12 +438,13 @@ def render_operations():
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
-    # ── Recent predictions table ──────────────────────────────────────────────
-    st.subheader("Recent Predictions")
+    # ── Current forecast table — full trajectory ──────────────────────────────
+    st.subheader("Current Forecast — Full Trajectory")
+    st.caption("Every lead time (h+1..h+K) emitted by the latest run")
 
-    table = predictions.tail(10).copy()
+    table = trajectory.copy()
+    table["Horizon"] = "h+" + table["horizon"].astype(str)
     table["timestamp_predicted"] = table["timestamp_predicted"].dt.strftime("%Y-%m-%d %H:%M")
-    table["predicted_at"] = table["predicted_at"].dt.strftime("%Y-%m-%d %H:%M")
     table["Source"] = table["prediction_source"].map(
         {FALLBACK_SOURCE: "Fallback (168h-lag)", "model": "Model"}
     )
@@ -369,6 +458,7 @@ def render_operations():
         table["Model (Reg/Cas)"] = "?"
     table = table[
         [
+            "Horizon",
             "timestamp_predicted",
             "pred_total",
             "pred_registered",
@@ -390,7 +480,6 @@ def render_operations():
             "weathersit": "Weather",
         }
     )
-    table = table.sort_values("Hour", ascending=False).reset_index(drop=True)
     st.dataframe(table, use_container_width=True)
 
 
@@ -448,21 +537,27 @@ def render_monitoring():
 
     st.divider()
 
-    # ── Live performance over time ────────────────────────────────────────────
-    st.subheader("Live Performance Over Time")
+    # ── Live performance over time (primary horizon) ──────────────────────────
+    st.subheader(f"Live Performance Over Time — h+{PRIMARY_HORIZON}")
     perf = load_history_csv("performance_history.csv")
-    if perf.empty:
+    perf_primary = filter_to_horizon(perf, PRIMARY_HORIZON) if not perf.empty else perf
+    if perf_primary.empty:
         st.info("No performance history yet — accumulates weekly.")
     else:
         fig = go.Figure()
         fig.add_trace(
-            go.Scatter(x=perf["timestamp"], y=perf["rmse"], mode="lines+markers", name="Model RMSE")
+            go.Scatter(
+                x=perf_primary["timestamp"],
+                y=perf_primary["rmse"],
+                mode="lines+markers",
+                name="Model RMSE",
+            )
         )
-        if "naive_rmse" in perf.columns and perf["naive_rmse"].notna().any():
+        if "naive_rmse" in perf_primary.columns and perf_primary["naive_rmse"].notna().any():
             fig.add_trace(
                 go.Scatter(
-                    x=perf["timestamp"],
-                    y=perf["naive_rmse"],
+                    x=perf_primary["timestamp"],
+                    y=perf_primary["naive_rmse"],
                     mode="lines+markers",
                     name="Seasonal-naive RMSE",
                     line=dict(dash="dot"),
@@ -472,9 +567,54 @@ def render_monitoring():
             xaxis_title="Week", yaxis_title="RMSE", height=280, margin=dict(t=20, b=40, l=40, r=20)
         )
         st.plotly_chart(fig, use_container_width=True)
-        if "skill_vs_naive" in perf.columns and perf["skill_vs_naive"].notna().any():
-            latest_skill = perf["skill_vs_naive"].dropna().iloc[-1]
+        if (
+            "skill_vs_naive" in perf_primary.columns
+            and perf_primary["skill_vs_naive"].notna().any()
+        ):
+            latest_skill = perf_primary["skill_vs_naive"].dropna().iloc[-1]
             st.caption(f"Latest skill vs. seasonal-naive: **{latest_skill:+.1%}**")
+
+    st.divider()
+
+    # ── Performance by horizon (latest) ───────────────────────────────────────
+    # The multi-horizon payoff: how model accuracy and its edge over the naive
+    # baseline decay as the forecast reaches further ahead.
+    st.subheader("Performance by Horizon — Latest")
+    curve = latest_per_horizon(perf) if not perf.empty else perf
+    if curve.empty or len(curve) <= 1:
+        st.info("Per-horizon curve appears once multi-horizon predictions have been scored.")
+    else:
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(x=curve["horizon"], y=curve["rmse"], mode="lines+markers", name="Model RMSE")
+        )
+        if "naive_rmse" in curve.columns and curve["naive_rmse"].notna().any():
+            fig.add_trace(
+                go.Scatter(
+                    x=curve["horizon"],
+                    y=curve["naive_rmse"],
+                    mode="lines+markers",
+                    name="Seasonal-naive RMSE",
+                    line=dict(dash="dot"),
+                )
+            )
+        fig.update_layout(
+            xaxis_title="Horizon (hours ahead)",
+            yaxis_title="RMSE",
+            height=280,
+            margin=dict(t=20, b=40, l=40, r=20),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        if "skill_vs_naive" in curve.columns and curve["skill_vs_naive"].notna().any():
+            worst = curve.dropna(subset=["skill_vs_naive"])
+            crossover = worst[worst["skill_vs_naive"] <= 0]
+            if not crossover.empty:
+                st.caption(
+                    f"Model falls to parity with seasonal-naive by "
+                    f"**h+{int(crossover['horizon'].iloc[0])}**."
+                )
+            else:
+                st.caption("Model beats seasonal-naive across all served horizons.")
 
     st.divider()
 
