@@ -1,13 +1,12 @@
 import pandas as pd
-import pytest
 
 from bike_sharing.dashboard.app import (
     normalize_retrain_outcome,
-    compute_gauge_range,
     ensure_horizon,
     latest_trajectory,
     filter_to_horizon,
     latest_per_horizon,
+    live_model_metrics,
 )
 
 
@@ -36,37 +35,6 @@ def test_normalize_retrain_outcome_leaves_new_schema_untouched():
     normalized = normalize_retrain_outcome(new)
 
     assert normalized == new
-
-
-# ── compute_gauge_range ─────────────────────────────────────────────────────────
-
-
-def test_compute_gauge_range_scales_with_historical_max():
-    """
-    Axis max must clear the historical max (with headroom), not clip it like
-    the old hardcoded [0, 900] did against a real max of 977.
-    """
-    actual_total = pd.Series([100.0, 500.0, 977.0, 300.0])
-
-    axis_max, threshold = compute_gauge_range(actual_total)
-
-    assert axis_max > 977.0
-    assert axis_max == pytest.approx(977.0 * 1.1, abs=50)
-
-
-def test_compute_gauge_range_threshold_is_90th_percentile():
-    actual_total = pd.Series(range(1, 101), dtype=float)  # 1..100
-
-    _, threshold = compute_gauge_range(actual_total)
-
-    assert threshold == pytest.approx(actual_total.quantile(0.9))
-
-
-def test_compute_gauge_range_falls_back_when_no_history():
-    axis_max, threshold = compute_gauge_range(pd.Series([], dtype=float))
-
-    assert axis_max == 900.0
-    assert threshold == 700.0
 
 
 # ── ensure_horizon ──────────────────────────────────────────────────────────────
@@ -181,3 +149,73 @@ def test_latest_per_horizon_takes_last_row_of_each_horizon():
 
     assert curve["horizon"].tolist() == [1, 2]
     assert curve["rmse"].tolist() == [32.0, 45.0]  # the 2026-01-08 rows
+
+
+# ── live_model_metrics ──────────────────────────────────────────────────────────
+
+
+def test_live_model_metrics_returns_combined_and_per_model():
+    """
+    Combined + per-model metrics computed from h+1 predictions vs actuals.
+    Perfect predictions → 0 error everywhere, confirming each model reads its
+    own prediction/actual columns.
+    """
+    ts = pd.date_range("2026-01-01", periods=3, freq="h")
+    predictions = pd.DataFrame(
+        {
+            "timestamp_predicted": ts,
+            "horizon": 1,
+            "pred_total": [100.0, 200.0, 150.0],
+            "pred_registered": [80.0, 170.0, 120.0],
+            "pred_casual": [20.0, 30.0, 30.0],
+            "prediction_source": "model",
+        }
+    )
+    actuals = pd.DataFrame(
+        {
+            "timestamp_predicted": ts,
+            "actual_total": [100.0, 200.0, 150.0],
+            "actual_registered": [80.0, 170.0, 120.0],
+            "actual_casual": [20.0, 30.0, 30.0],
+        }
+    )
+
+    out = live_model_metrics(predictions, actuals, n_hours=168)
+
+    assert set(out) == {"Combined", "Registered", "Casual"}
+    assert out["Combined"]["rmse"] == 0.0
+    assert out["Registered"]["rmse"] == 0.0
+    assert out["Casual"]["rmse"] == 0.0
+
+
+def test_live_model_metrics_excludes_fallback_and_other_horizons():
+    """Only resolved h+1 model rows are scored — fallback rows and h+2 rows
+    must be dropped before computing."""
+    ts = pd.to_datetime(["2026-01-01 00:00", "2026-01-01 01:00"])
+    predictions = pd.DataFrame(
+        {
+            "timestamp_predicted": [ts[0], ts[0], ts[1]],
+            "horizon": [1, 2, 1],
+            "pred_total": [100.0, 999.0, 200.0],
+            "pred_registered": [80.0, 900.0, 170.0],
+            "pred_casual": [20.0, 99.0, 30.0],
+            "prediction_source": ["model", "model", "fallback_lag168"],
+        }
+    )
+    actuals = pd.DataFrame(
+        {
+            "timestamp_predicted": ts,
+            "actual_total": [100.0, 200.0],
+            "actual_registered": [80.0, 170.0],
+            "actual_casual": [20.0, 30.0],
+        }
+    )
+
+    out = live_model_metrics(predictions, actuals, n_hours=168)
+
+    # Only the single h+1 model row at 00:00 survives (01:00 is fallback) → rmse 0.
+    assert out["Combined"]["rmse"] == 0.0
+
+
+def test_live_model_metrics_none_when_no_resolved_rows():
+    assert live_model_metrics(pd.DataFrame(), pd.DataFrame(), n_hours=168) is None
