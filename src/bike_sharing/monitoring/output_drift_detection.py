@@ -68,10 +68,18 @@ def main(cfg: DictConfig) -> None:
     history_path = artifacts_dir / "monitoring" / "output_drift_history.csv"
     n_hours = cfg.monitoring.n_hours
     drift_threshold = float(cfg.monitoring.drift_threshold)
+    primary_horizon = cfg.forecast.primary_horizon
 
     # ── Load & split ──────────────────────────────────────────────────────────
     logger.info("Loading predictions")
     predictions = load_predictions(pred_path)
+
+    # Multi-horizon serving emits K predictions per hour (one per lead time),
+    # whose distributions differ by construction. Filter to primary_horizon so
+    # the rolling self-comparison is a single consistent series — otherwise the
+    # windows would mix lead times and both the n_hours span and the drift
+    # signal would be meaningless.
+    predictions = predictions[predictions["horizon"] == primary_horizon]
 
     reference, current = split_rolling_windows(predictions, n_hours)
     if reference is None:

@@ -293,6 +293,63 @@ def test_is_performance_degraded_false_when_history_missing(tmp_path):
     assert live_rmse is None
 
 
+def test_is_performance_degraded_reads_only_primary_horizon(tmp_path):
+    """
+    With per-horizon history, the gate must read only primary_horizon — the one
+    lead time comparable to the single-step baseline. A blown-up h+12 (which
+    naturally has high RMSE) must not trigger degradation; the healthy h+1 must.
+    """
+    history_path = tmp_path / "performance_history.csv"
+    pd.DataFrame(
+        [
+            {"rmse": 52.0, "horizon": 1},
+            {"rmse": 300.0, "horizon": 12},
+        ]
+    ).to_csv(history_path, index=False)
+
+    degraded, live_rmse = is_performance_degraded(
+        history_path, baseline_rmse=50.0, degradation_threshold=0.2, primary_horizon=1
+    )
+
+    assert degraded is False  # 52 <= 50 * 1.2 = 60
+    assert live_rmse == 52.0
+
+
+def test_is_performance_degraded_picks_latest_row_of_primary_horizon(tmp_path):
+    """The comparison uses the most recent primary-horizon record, ignoring
+    interleaved rows from other horizons written in the same run."""
+    history_path = tmp_path / "performance_history.csv"
+    pd.DataFrame(
+        [
+            {"rmse": 55.0, "horizon": 1},
+            {"rmse": 200.0, "horizon": 12},
+            {"rmse": 70.0, "horizon": 1},  # latest h+1 → over threshold
+            {"rmse": 210.0, "horizon": 12},
+        ]
+    ).to_csv(history_path, index=False)
+
+    degraded, live_rmse = is_performance_degraded(
+        history_path, baseline_rmse=50.0, degradation_threshold=0.2, primary_horizon=1
+    )
+
+    assert degraded is True  # 70 > 60
+    assert live_rmse == 70.0
+
+
+def test_is_performance_degraded_false_when_no_row_at_primary_horizon(tmp_path):
+    """If history has no row at the requested horizon yet, treat as cold start
+    (no signal) rather than raising."""
+    history_path = tmp_path / "performance_history.csv"
+    pd.DataFrame([{"rmse": 300.0, "horizon": 12}]).to_csv(history_path, index=False)
+
+    degraded, live_rmse = is_performance_degraded(
+        history_path, baseline_rmse=50.0, degradation_threshold=0.2, primary_horizon=1
+    )
+
+    assert degraded is False
+    assert live_rmse is None
+
+
 # ── get_production_baseline_rmse ──────────────────────────────────────────────
 
 
