@@ -124,7 +124,12 @@ def test_send_email_sends_expected_message(monkeypatch):
     assert sent.get_payload(decode=True).decode().strip() == "<p>Body text</p>"
 
 
-def test_send_email_logs_and_continues_when_credentials_missing(monkeypatch):
+def test_send_email_logs_and_continues_when_credentials_missing(monkeypatch, capsys):
+    """
+    A missing secret must not raise, but it also must not be invisible — a
+    plain log line is easy to miss in CI, so it's also printed as a GitHub
+    Actions warning annotation (shows up in the run UI without opening logs).
+    """
     monkeypatch.delenv("SMTP_USERNAME", raising=False)
     monkeypatch.delenv("SMTP_PASSWORD", raising=False)
     instantiated = []
@@ -133,3 +138,20 @@ def test_send_email_logs_and_continues_when_credentials_missing(monkeypatch):
     alerting.send_email("Subject", "Body", "target@example.com")
 
     assert instantiated == []
+    assert "::warning::" in capsys.readouterr().out
+
+
+def test_send_email_annotates_when_smtp_raises(monkeypatch, capsys):
+    """Same visibility guarantee when SMTP itself fails (bad password, network, etc.)."""
+    monkeypatch.setenv("SMTP_USERNAME", "me@gmail.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "app-password")
+
+    class _RaisingSMTP:
+        def __init__(self, *a, **k):
+            raise OSError("connection refused")
+
+    monkeypatch.setattr(alerting.smtplib, "SMTP", _RaisingSMTP)
+
+    alerting.send_email("Subject", "Body", "target@example.com")
+
+    assert "::warning::" in capsys.readouterr().out

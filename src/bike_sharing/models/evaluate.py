@@ -111,6 +111,28 @@ def plot_demand_over_time(
     logger.info(f"Saved demand over time plot to {path}")
 
 
+def evaluate_models(
+    model_registered: lgb.Booster,
+    model_casual: lgb.Booster,
+    val: pd.DataFrame,
+) -> tuple[dict, np.ndarray]:
+    """
+    Combine registered + casual predictions (expm1, clipped at 0) and
+    compute metrics against cnt — feeds metrics.json, a direct input to
+    retrain.py's promotion decision. A wiring bug here (registered/casual
+    swapped, missing clip) would silently corrupt that decision.
+    """
+    X_val = val[FEATURES]
+    y_val_cnt = val["cnt"].values
+
+    pred_registered = np.expm1(model_registered.predict(X_val))
+    pred_casual = np.expm1(model_casual.predict(X_val))
+    pred_combined = np.clip(pred_registered + pred_casual, 0, None)
+
+    metrics = compute_metrics(y_val_cnt, pred_combined)
+    return metrics, pred_combined
+
+
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     processed_dir = Path(cfg.paths.processed_dir)
@@ -120,7 +142,6 @@ def main(cfg: DictConfig) -> None:
     logger.info("Loading validation data")
     val = pd.read_csv(processed_dir / "val.csv")
     val["dteday"] = pd.to_datetime(val["dteday"])
-
     X_val = val[FEATURES]
     y_val_cnt = val["cnt"].values
 
@@ -129,13 +150,8 @@ def main(cfg: DictConfig) -> None:
     model_registered = lgb.Booster(model_file=Path(cfg.paths.models_dir) / "lgbm_registered.txt")
     model_casual = lgb.Booster(model_file=Path(cfg.paths.models_dir) / "lgbm_casual.txt")
 
-    # ── Predict ───────────────────────────────────────────────────────────────
-    pred_registered = np.expm1(model_registered.predict(X_val))
-    pred_casual = np.expm1(model_casual.predict(X_val))
-    pred_combined = np.clip(pred_registered + pred_casual, 0, None)
-
-    # ── Metrics ───────────────────────────────────────────────────────────────
-    metrics = compute_metrics(y_val_cnt, pred_combined)
+    # ── Predict & compute metrics ──────────────────────────────────────────────
+    metrics, pred_combined = evaluate_models(model_registered, model_casual, val)
     logger.info(
         f"Evaluation — "
         f"RMSE: {metrics['rmse']:.2f} | "

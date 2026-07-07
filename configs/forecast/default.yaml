@@ -1,0 +1,8 @@
+# Multi-horizon forecasting config.
+# The model is a single h+1 model; the horizon lives entirely in serving
+# (the recursive rollout in predict.py), so changing K here needs no retraining.
+horizon: 12            # K: hours ahead served each run (h+1..h+K). Chosen from the skill-vs-naive
+                       # curve in notebooks/05_multi_horizon_forecasting.ipynb — the model beats the
+                       # seasonal-naive baseline comfortably through ~h+12 and flattens to parity beyond ~h+18.
+primary_horizon: 1     # Lead time that governs the retrain gate and the output-drift check. Must be 1:
+                       # it's the only horizon comparable to the h+1 validation RMSE the promotion baseline uses.

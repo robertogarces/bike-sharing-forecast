@@ -61,8 +61,12 @@ def _format_retrain_section(retrain_outcome: dict | None) -> str:
         lines.append(f"- New model RMSE: {retrain_outcome['new_rmse']:.4f}")
     if retrain_outcome["prod_rmse"] is not None:
         lines.append(f"- Production model RMSE: {retrain_outcome['prod_rmse']:.4f}")
-    if retrain_outcome["promoted"] is not None:
-        lines.append(f"- Promoted to production: {'Yes' if retrain_outcome['promoted'] else 'No'}")
+    if retrain_outcome.get("promoted_registered") is not None:
+        lines.append(
+            f"- Promoted to production: "
+            f"registered={'Yes' if retrain_outcome['promoted_registered'] else 'No'}, "
+            f"casual={'Yes' if retrain_outcome['promoted_casual'] else 'No'}"
+        )
     _append_performance_line(lines, retrain_outcome)
     return "\n".join(lines)
 
@@ -75,40 +79,72 @@ def _append_performance_line(lines: list[str], retrain_outcome: dict) -> None:
         lines.append(f"- Live vs. baseline RMSE: {live_rmse:.2f} vs {baseline_rmse:.2f} ({status})")
 
 
-def _format_performance_section(performance_summary: dict | None) -> str:
+def _format_performance_section(
+    performance_summary: dict | None,
+    horizon_curve: list[dict] | None = None,
+) -> str:
     if performance_summary is None:
         return "## Live Performance\n\nNot available yet — no resolved predictions to score."
 
-    return "\n".join(
-        [
-            "## Live Performance",
-            "",
-            f"- Window: last {int(performance_summary['n_hours'])}h "
-            f"({int(performance_summary['n_resolved'])} resolved predictions)",
-            f"- RMSE: {performance_summary['rmse']:.2f}",
-            f"- MAE: {performance_summary['mae']:.2f}",
-            f"- RMSLE: {performance_summary['rmsle']:.4f}",
-            f"- R²: {performance_summary['r2']:.4f}",
-        ]
-    )
+    horizon = performance_summary.get("horizon")
+    headline = "## Live Performance"
+    if horizon is not None:
+        headline += f" (primary horizon h+{int(horizon)})"
+
+    lines = [
+        headline,
+        "",
+        f"- Window: last {int(performance_summary['n_hours'])}h "
+        f"({int(performance_summary['n_resolved'])} resolved predictions)",
+        f"- RMSE: {performance_summary['rmse']:.2f}",
+        f"- MAE: {performance_summary['mae']:.2f}",
+        f"- RMSLE: {performance_summary['rmsle']:.4f}",
+        f"- R²: {performance_summary['r2']:.4f}",
+    ]
+    naive_rmse = performance_summary.get("naive_rmse")
+    skill = performance_summary.get("skill_vs_naive")
+    if pd.notna(naive_rmse) and pd.notna(skill):
+        lines.append(
+            f"- vs seasonal-naive: {performance_summary['rmse']:.2f} vs {naive_rmse:.2f} "
+            f"RMSE ({skill:+.1%} skill)"
+        )
+
+    # Per-horizon skill curve — the multi-horizon payoff: shows where along the
+    # trajectory the model still beats the naive baseline. Only rendered when
+    # more than the primary horizon is present.
+    if horizon_curve and len(horizon_curve) > 1:
+        lines.append("")
+        lines.append("Skill by horizon (latest):")
+        for row in horizon_curve:
+            row_skill = row.get("skill_vs_naive")
+            skill_str = f"{row_skill:+.1%} skill" if pd.notna(row_skill) else "skill n/a"
+            lines.append(f"- h+{int(row['horizon'])}: RMSE {row['rmse']:.2f} ({skill_str})")
+
+    return "\n".join(lines)
 
 
 def build_weekly_digest(
     drift_summary: dict | None,
     retrain_outcome: dict | None,
     performance_summary: dict | None,
+    horizon_curve: list[dict] | None = None,
 ) -> str:
     """
     Build the weekly monitoring digest as markdown. Purely a function of its
     inputs — no I/O — so it can be unit tested without touching disk. Any
     section whose source is None (e.g. the very first run) renders as
     "not available yet" instead of failing.
+
+    performance_summary is the primary-horizon (h+1) headline — the number
+    comparable to the retrain baseline. horizon_curve, when given, adds the
+    latest RMSE/skill per lead time so the report shows the whole trajectory's
+    quality, not just the next hour.
     """
     return "\n\n".join(
         [
             _format_drift_section(drift_summary),
             _format_retrain_section(retrain_outcome),
-            _format_performance_section(performance_summary),
+            _format_performance_section(performance_summary, horizon_curve),
         ]
     )
 
@@ -120,13 +156,41 @@ def _load_json(path: Path) -> dict | None:
         return json.load(f)
 
 
-def _load_last_performance_row(path: Path) -> dict | None:
+def _read_performance_history(path: Path) -> pd.DataFrame | None:
+    """Load performance_history.csv with the horizon column normalized (legacy
+    rows without it read as horizon=1). None if missing or empty."""
     if not path.exists():
         return None
     df = pd.read_csv(path)
     if df.empty:
         return None
+    if "horizon" not in df.columns:
+        df["horizon"] = 1
+    else:
+        df["horizon"] = df["horizon"].fillna(1).astype(int)
+    return df
+
+
+def _load_primary_performance_row(path: Path, primary_horizon: int) -> dict | None:
+    """Most recent performance record at primary_horizon — the headline number
+    comparable to the retrain baseline."""
+    df = _read_performance_history(path)
+    if df is None:
+        return None
+    df = df[df["horizon"] == primary_horizon]
+    if df.empty:
+        return None
     return df.iloc[-1].to_dict()
+
+
+def _load_horizon_curve(path: Path) -> list[dict] | None:
+    """Latest record per horizon (the current error/skill-vs-horizon curve),
+    ordered by horizon. None if no history yet."""
+    df = _read_performance_history(path)
+    if df is None:
+        return None
+    latest = df.groupby("horizon").tail(1).sort_values("horizon")
+    return latest.to_dict("records")
 
 
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
@@ -135,11 +199,13 @@ def main(cfg: DictConfig) -> None:
 
     drift_summary = _load_json(artifacts_dir / "drift" / "drift_detected.json")
     retrain_outcome = _load_json(artifacts_dir / "monitoring" / "retrain_outcome.json")
-    performance_summary = _load_last_performance_row(
-        artifacts_dir / "monitoring" / "performance_history.csv"
+    performance_history_path = artifacts_dir / "monitoring" / "performance_history.csv"
+    performance_summary = _load_primary_performance_row(
+        performance_history_path, cfg.forecast.primary_horizon
     )
+    horizon_curve = _load_horizon_curve(performance_history_path)
 
-    body = build_weekly_digest(drift_summary, retrain_outcome, performance_summary)
+    body = build_weekly_digest(drift_summary, retrain_outcome, performance_summary, horizon_curve)
     title = f"Weekly Monitoring Report — {datetime.now():%Y-%m-%d}"
 
     create_github_issue(title, body, [cfg.alerting.weekly_report_label], cfg.alerting.dedup_hours)

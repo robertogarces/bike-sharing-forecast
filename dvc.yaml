@@ -18,6 +18,7 @@ stages:
     - src/bike_sharing/models/train.py
     - configs/config.yaml
     - configs/model/lgbm.yaml
+    - configs/model/best_params.yaml
     - data/processed/train.csv
     - data/processed/val.csv
     params:

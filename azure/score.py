@@ -7,8 +7,13 @@ are injected) to load both LightGBM models from the Model Registry, then calls
 logic: it back-transforms each model's log prediction with ``expm1`` and returns
 the registered/casual split plus the total.
 
-Models are loaded by explicit version (``MODEL_VERSION``) rather than by alias,
-because Azure ML's MLflow API does not implement model aliases. See docs/azure.md.
+Models are loaded by explicit version (``MODEL_VERSION_REGISTERED`` /
+``MODEL_VERSION_CASUAL``) rather than by alias, because Azure ML's MLflow API
+does not implement model aliases. See docs/azure.md.
+
+Registered and casual are pinned independently — since backlog #10, the
+production pair can be mixed (each model promoted on its own merit), so a
+single version number can no longer describe both.
 """
 
 import json
@@ -51,10 +56,17 @@ model_casual = None
 def init():
     global model_registered, model_casual
     project = os.getenv("PROJECT_NAME", "bike-sharing-forecast")
-    version = os.getenv("MODEL_VERSION", "6")
-    logger.info(f"Loading models v{version} from MLflow registry")
-    model_registered = mlflow.lightgbm.load_model(f"models:/{project}-registered/{version}")
-    model_casual = mlflow.lightgbm.load_model(f"models:/{project}-casual/{version}")
+    version_registered = os.getenv("MODEL_VERSION_REGISTERED")
+    version_casual = os.getenv("MODEL_VERSION_CASUAL")
+    if version_registered is None or version_casual is None:
+        raise RuntimeError(
+            "MODEL_VERSION_REGISTERED and MODEL_VERSION_CASUAL environment variables must be set."
+        )
+    logger.info(f"Loading registered v{version_registered}, casual v{version_casual}")
+    model_registered = mlflow.lightgbm.load_model(
+        f"models:/{project}-registered/{version_registered}"
+    )
+    model_casual = mlflow.lightgbm.load_model(f"models:/{project}-casual/{version_casual}")
     logger.info("Models loaded")
 
 

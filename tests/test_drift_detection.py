@@ -4,7 +4,12 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-from bike_sharing.monitoring.drift_detection import load_reference, run_drift_report, DRIFT_FEATURES
+from bike_sharing.monitoring.drift_detection import (
+    load_reference,
+    run_drift_report,
+    DRIFT_FEATURES,
+    _load_reference_snapshot,
+)
 
 
 @pytest.fixture
@@ -54,23 +59,6 @@ def test_load_reference_returns_only_drift_features(sample_reference_csv):
 
     assert list(result.columns) == DRIFT_FEATURES
     assert "days_since_start" not in result.columns
-
-
-def test_run_drift_report_saves_flag(sample_reference_csv):
-    """
-    run_drift_report should always save drift_detected.json regardless
-    of whether drift was detected or not.
-    """
-    reference = load_reference(sample_reference_csv, months=[1], min_reference_rows=1)
-    current = reference.tail(50).copy()
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        output_dir = Path(tmpdir)
-        run_drift_report(
-            reference, current, output_dir, drift_threshold=0.5, numerical_features=DRIFT_FEATURES
-        )
-
-        assert (output_dir / "drift_detected.json").exists()
 
 
 def test_run_drift_report_flag_has_required_keys(sample_reference_csv):
@@ -203,3 +191,47 @@ def test_load_reference_falls_back_to_full_when_still_thin():
         result = load_reference(processed_dir, months=[6], min_reference_rows=500)
 
         assert len(result) == 910
+
+
+# ── _load_reference_snapshot ──────────────────────────────────────────────────
+
+
+class _FakeVersionWithRunId:
+    def __init__(self, run_id):
+        self.run_id = run_id
+
+
+class _FakeClientWithSnapshot:
+    def __init__(self, local_path):
+        self.local_path = local_path
+
+    def get_model_version_by_alias(self, name, alias):
+        return _FakeVersionWithRunId("run123")
+
+    def download_artifacts(self, run_id, path):
+        return self.local_path
+
+
+class _FakeClientNoSnapshot:
+    """No production alias / snapshot exists yet — model promoted before
+    this existed, or bootstrap."""
+
+    def get_model_version_by_alias(self, name, alias):
+        raise Exception("no production model")
+
+
+def test_load_reference_snapshot_returns_dataframe_when_found(tmp_path):
+    snapshot_path = tmp_path / "drift_reference_snapshot.csv"
+    pd.DataFrame({"temp": [0.5, 0.6], "mnth": [1, 2]}).to_csv(snapshot_path, index=False)
+    client = _FakeClientWithSnapshot(str(snapshot_path))
+
+    result = _load_reference_snapshot(client, "bike-sharing-forecast")
+
+    assert result is not None
+    assert list(result.columns) == ["temp", "mnth"]
+
+
+def test_load_reference_snapshot_returns_none_when_not_found():
+    client = _FakeClientNoSnapshot()
+
+    assert _load_reference_snapshot(client, "bike-sharing-forecast") is None

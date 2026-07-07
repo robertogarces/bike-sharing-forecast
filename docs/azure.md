@@ -177,6 +177,11 @@ permissions:
 The workflow creates the endpoint, grants its managed identity access to the model registry, and
 deploys the scoring container.
 
+Before triggering a redeploy after a new Azure training job, run
+`python azure/sync_deployment_versions.py` (with `MLFLOW_TRACKING_URI` pointed at the Azure ML
+workspace) to pull the latest registered/casual versions from the Azure ML Model Registry into
+`deployment.yaml` — otherwise the endpoint keeps serving whatever version was last hardcoded there.
+
 ![GitHub Actions deploy workflow](assets/github-actions-azure-endpoint-deploy.png)
 
 ---
@@ -192,6 +197,7 @@ deploys the scoring container.
 | [azure/conda_endpoint.yaml](../azure/conda_endpoint.yaml) | Serving environment dependencies |
 | [azure/endpoint.yaml](../azure/endpoint.yaml) | Managed Online Endpoint definition |
 | [azure/deployment.yaml](../azure/deployment.yaml) | Deployment config (SKU, env vars, model version) |
+| [azure/sync_deployment_versions.py](../azure/sync_deployment_versions.py) | Pulls latest registry versions into deployment.yaml before a redeploy |
 | [azure/sample_request.json](../azure/sample_request.json) | Example request payload |
 | [.github/workflows/deploy-azure.yml](../.github/workflows/deploy-azure.yml) | Manual deploy workflow with OIDC |
 
@@ -231,9 +237,10 @@ service providers disabled, and the online-endpoint create call masked the real 
 
 **Azure ML does not implement MLflow model aliases.** The production code uses `models:/<name>@production`,
 but Azure ML's MLflow-compatible API returns `404` for the alias endpoint. Models must be loaded by
-explicit version instead (`models:/<name>/<version>`), pinned via the `MODEL_VERSION` environment
-variable. Pinning a version is the correct choice for serving anyway — you want deliberate promotion,
-not silent jumps.
+explicit version instead (`models:/<name>/<version>`), pinned via the `MODEL_VERSION_REGISTERED` /
+`MODEL_VERSION_CASUAL` environment variables — one per model, since the production pair can be mixed.
+Pinning a version is the correct choice for serving anyway — you want deliberate promotion, not silent
+jumps.
 
 **`MLFLOW_TRACKING_URI` is not auto-injected into endpoint containers.** Training jobs get it for free,
 but online-endpoint containers do not — it must be set explicitly in `deployment.yaml` under

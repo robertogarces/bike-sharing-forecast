@@ -80,7 +80,7 @@ def main(cfg: DictConfig) -> None:
     triggered = False
     now = datetime.now()
 
-    if output_drift_row is not None and output_drift_row["drift_detected"]:
+    if output_drift_row is not None and output_drift_row.get("drift_detected") is True:
         triggered = True
         _dispatch(
             f"Output Drift Alert — {now:%Y-%m-%d %H:%M}",

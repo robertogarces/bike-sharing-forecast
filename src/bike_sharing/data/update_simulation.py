@@ -8,21 +8,10 @@ import pandas as pd
 from omegaconf import DictConfig
 
 from bike_sharing.data.validate_data import validate_data_quality
+from bike_sharing.utils.datetime_utils import reconstruct_datetime
+from bike_sharing.utils.simulation_utils import load_simulation_state
 
 logger = logging.getLogger(__name__)
-
-
-def load_simulation_state(state_path: Path) -> dict:
-    """
-    Load the simulation state from disk.
-    Raises if the simulation has not been initialized.
-    """
-    if not state_path.exists():
-        raise RuntimeError(
-            "No simulation state found. Run shift_dates.py first to initialize the simulation."
-        )
-    with open(state_path) as f:
-        return json.load(f)
 
 
 def move_revealed_records(
@@ -56,7 +45,7 @@ def move_revealed_records(
     future["dteday"] = pd.to_datetime(future["dteday"]).dt.normalize()
 
     # Build datetime for comparison
-    future["datetime"] = future["dteday"] + pd.to_timedelta(future["hr"], unit="h")
+    future = reconstruct_datetime(future)
     now_ts = pd.Timestamp(now)
 
     revealed = future[future["datetime"] <= now_ts].copy()

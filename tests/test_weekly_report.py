@@ -32,7 +32,8 @@ def test_build_weekly_digest_no_drift_no_retrain_with_performance():
         "data_quality_issues": [],
         "new_rmse": None,
         "prod_rmse": None,
-        "promoted": None,
+        "promoted_registered": None,
+        "promoted_casual": None,
         "performance_degraded": False,
         "baseline_rmse": 30.0,
         "live_rmse": 32.5,
@@ -44,6 +45,8 @@ def test_build_weekly_digest_no_drift_no_retrain_with_performance():
         "mae": 20.1,
         "rmsle": 0.15,
         "r2": 0.89,
+        "naive_rmse": 65.0,
+        "skill_vs_naive": 0.5,
     }
 
     digest = build_weekly_digest(drift_summary, retrain_outcome, performance_summary)
@@ -54,6 +57,7 @@ def test_build_weekly_digest_no_drift_no_retrain_with_performance():
     assert "RMSE: 32.50" in digest
     assert "R²: 0.8900" in digest
     assert "Live vs. baseline RMSE: 32.50 vs 30.00 (stable)" in digest
+    assert "vs seasonal-naive: 32.50 vs 65.00 RMSE (+50.0% skill)" in digest
 
 
 def test_build_weekly_digest_drift_detected_and_retrain_promoted():
@@ -77,7 +81,8 @@ def test_build_weekly_digest_drift_detected_and_retrain_promoted():
         "data_quality_issues": [],
         "new_rmse": 28.3,
         "prod_rmse": 31.0,
-        "promoted": True,
+        "promoted_registered": True,
+        "promoted_casual": False,
         "performance_degraded": True,
         "baseline_rmse": 25.0,
         "live_rmse": 32.0,
@@ -91,7 +96,7 @@ def test_build_weekly_digest_drift_detected_and_retrain_promoted():
     assert "Attempted: Yes" in digest
     assert "New model RMSE: 28.3000" in digest
     assert "Production model RMSE: 31.0000" in digest
-    assert "Promoted to production: Yes" in digest
+    assert "Promoted to production: registered=Yes, casual=No" in digest
     assert "Live vs. baseline RMSE: 32.00 vs 25.00 (DEGRADED)" in digest
 
 
@@ -104,10 +109,64 @@ def test_build_weekly_digest_retrain_aborted_by_data_quality_failure():
         "data_quality_issues": ["missing column 'hum'"],
         "new_rmse": None,
         "prod_rmse": None,
-        "promoted": None,
+        "promoted_registered": None,
+        "promoted_casual": None,
     }
 
     digest = build_weekly_digest(None, retrain_outcome, None)
 
     assert "Data quality check: failed" in digest
     assert "missing column 'hum'" in digest
+
+
+def test_build_weekly_digest_labels_primary_horizon_and_renders_curve():
+    """
+    With multi-horizon inputs, the headline names the primary horizon and a
+    per-horizon skill curve is appended — the multi-horizon payoff in the
+    report.
+    """
+    performance_summary = {
+        "n_hours": 168,
+        "n_resolved": 165,
+        "rmse": 32.5,
+        "mae": 20.1,
+        "rmsle": 0.15,
+        "r2": 0.89,
+        "naive_rmse": 65.0,
+        "skill_vs_naive": 0.5,
+        "horizon": 1,
+    }
+    horizon_curve = [
+        {"horizon": 1, "rmse": 32.5, "skill_vs_naive": 0.5},
+        {"horizon": 2, "rmse": 40.0, "skill_vs_naive": 0.38},
+        {"horizon": 3, "rmse": 45.0, "skill_vs_naive": None},  # no naive coverage
+    ]
+
+    digest = build_weekly_digest(None, None, performance_summary, horizon_curve)
+
+    assert "## Live Performance (primary horizon h+1)" in digest
+    assert "Skill by horizon (latest):" in digest
+    assert "- h+1: RMSE 32.50 (+50.0% skill)" in digest
+    assert "- h+2: RMSE 40.00 (+38.0% skill)" in digest
+    assert "- h+3: RMSE 45.00 (skill n/a)" in digest
+
+
+def test_build_weekly_digest_omits_curve_when_only_one_horizon():
+    """A single-horizon curve adds no information beyond the headline — the
+    per-horizon block is suppressed."""
+    performance_summary = {
+        "n_hours": 168,
+        "n_resolved": 100,
+        "rmse": 30.0,
+        "mae": 18.0,
+        "rmsle": 0.1,
+        "r2": 0.9,
+        "naive_rmse": 60.0,
+        "skill_vs_naive": 0.5,
+        "horizon": 1,
+    }
+    horizon_curve = [{"horizon": 1, "rmse": 30.0, "skill_vs_naive": 0.5}]
+
+    digest = build_weekly_digest(None, None, performance_summary, horizon_curve)
+
+    assert "Skill by horizon" not in digest

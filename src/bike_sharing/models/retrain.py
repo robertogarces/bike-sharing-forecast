@@ -1,10 +1,12 @@
 import logging
+import tempfile
 from pathlib import Path
 from datetime import datetime
 
 import hydra
 from omegaconf import DictConfig
 import json
+import lightgbm as lgb
 import mlflow
 import mlflow.lightgbm
 import numpy as np
@@ -13,14 +15,13 @@ from mlflow.tracking import MlflowClient
 from bike_sharing.data.validate_data import validate_data_quality
 from bike_sharing.models.train import compute_metrics, FEATURES
 from bike_sharing.utils.command_utils import run_command
+from bike_sharing.utils.datetime_utils import reconstruct_datetime
 from bike_sharing.utils.mlflow_utils import setup_mlflow
 
 logger = logging.getLogger(__name__)
 
 
 def should_retrain(drift_flag_path: Path, force: bool) -> bool:
-    import json
-
     if force:
         logger.info("Force retrain — skipping drift check")
         return True
@@ -81,8 +82,7 @@ def count_new_hours(hour_past_path: Path, marker_path: Path) -> int | None:
     cutoff = pd.to_datetime(marker["data_cutoff"])
 
     df = pd.read_csv(hour_past_path)
-    df["dteday"] = pd.to_datetime(df["dteday"])
-    df["datetime"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
+    df = reconstruct_datetime(df)
 
     return int((df["datetime"] > cutoff).sum())
 
@@ -97,8 +97,7 @@ def write_retrain_marker(hour_past_path: Path, marker_path: Path) -> None:
     already spent, so the boundary should advance to avoid re-running next week.
     """
     df = pd.read_csv(hour_past_path)
-    df["dteday"] = pd.to_datetime(df["dteday"])
-    df["datetime"] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
+    df = reconstruct_datetime(df)
     data_cutoff = df["datetime"].max()
 
     marker_path.parent.mkdir(parents=True, exist_ok=True)
@@ -153,19 +152,24 @@ def describe_drift_skip_reason(drift_flag_path: Path) -> str:
 
 def get_production_baseline_rmse(client: MlflowClient, project: str) -> float | None:
     """
-    RMSE de validación que el modelo actualmente en producción obtuvo al
-    momento de su propia promoción, leído del run de MLflow asociado a la
-    versión con alias "production" — train.py ya loguea ese RMSE en el mismo
-    run donde se crea la versión (create_model_version(..., run_id=run_id)).
+    Combined RMSE of the current production pair at the time it was
+    promoted. Read first from the "combined_rmse_baseline" tag on the
+    registered model's "production" version — logged by
+    promote_best_combination after each promotion, since with mixed pairs
+    the RMSE no longer corresponds to a single training run. Falls back to
+    the "rmse" metric train.py logs on the run (versions promoted before
+    this tag existed).
 
-    None si no existe alias "production" todavía (bootstrap — nada con qué
-    comparar).
+    None if no "production" alias exists yet (bootstrap — nothing to compare
+    against).
     """
     try:
         version = client.get_model_version_by_alias(f"{project}-registered", "production")
     except mlflow.exceptions.MlflowException:
         logger.info("No production model found — performance gate not evaluated (bootstrap)")
         return None
+    if "combined_rmse_baseline" in version.tags:
+        return float(version.tags["combined_rmse_baseline"])
     run = client.get_run(version.run_id)
     return run.data.metrics.get("rmse")
 
@@ -174,16 +178,23 @@ def is_performance_degraded(
     performance_history_path: Path,
     baseline_rmse: float | None,
     degradation_threshold: float,
+    primary_horizon: int = 1,
 ) -> tuple[bool, float | None]:
     """
-    Compara el RMSE rodante más reciente (última fila de
-    performance_history.csv, escrito semanalmente por
-    performance_monitoring.py) contra el RMSE de validación del modelo en
-    producción al momento de su promoción.
+    Compare the most recent rolling RMSE at primary_horizon (the last row for
+    that lead time in performance_history.csv, written per-horizon by
+    performance_monitoring.py) against the production model's validation RMSE
+    at promotion time.
 
-    Returns (degraded, live_rmse). degraded es siempre False si no hay
-    baseline o no hay historial de performance todavía (arranque en frío) —
-    live_rmse es None en esos casos.
+    Only primary_horizon (h+1) is comparable to the baseline: the baseline is a
+    single-step validation RMSE, while longer horizons carry recursive-rollout
+    error and would read as permanently "degraded" against it. Rows written
+    before the multi-horizon change have no horizon column — treated as
+    horizon=1, which is what they were.
+
+    Returns (degraded, live_rmse). degraded is always False when there is no
+    baseline, no performance history yet, or no row at primary_horizon (cold
+    start) — live_rmse is None in those cases.
     """
     if baseline_rmse is None or not performance_history_path.exists():
         return False, None
@@ -192,117 +203,200 @@ def is_performance_degraded(
     if df.empty:
         return False, None
 
+    if "horizon" not in df.columns:
+        df["horizon"] = 1
+    else:
+        df["horizon"] = df["horizon"].fillna(1).astype(int)
+    df = df[df["horizon"] == primary_horizon]
+    if df.empty:
+        return False, None
+
     live_rmse = float(df.iloc[-1]["rmse"])
     degraded = live_rmse > baseline_rmse * (1 + degradation_threshold)
     return degraded, live_rmse
 
 
-def evaluate_production_pair(project: str, val_df: pd.DataFrame) -> float | None:
+def _combination_rmses(
+    y_cnt: np.ndarray,
+    new_reg: np.ndarray,
+    new_cas: np.ndarray,
+    prod_reg: np.ndarray,
+    prod_cas: np.ndarray,
+) -> dict[tuple[str, str], float]:
     """
-    Evaluate the current production model pair (registered + casual) on the
-    *current* validation set and return the combined RMSE.
+    Combined RMSE for each of the four deployable (registered, casual) source
+    combinations, keyed by ("new"|"prod", "new"|"prod"). Predictions must be on
+    the original cnt scale (expm1 already applied); the pair sum is clipped at 0
+    before scoring, matching evaluate_models / evaluate.py.
 
-    This is the champion side of the champion/challenger comparison. Both the
-    new (challenger) and the production (champion) models are scored on the
-    SAME val.csv, making the RMSE comparison apples-to-apples — unlike reading
-    the champion's metric stored from its own (older) validation period, which
-    could differ purely because the holdout differs.
-
-    Parameters
-    ----------
-    project : str
-        Registered-model name prefix (models are '{project}-registered' and
-        '{project}-casual').
-    val_df : pd.DataFrame
-        Current validation set (must contain FEATURES and the 'cnt' column).
-
-    Returns
-    -------
-    float | None
-        Combined RMSE of the production pair on val_df, or None if no
-        production alias exists yet (bootstrap — nothing to compare against).
+    The combined RMSE is not decomposable into per-model RMSEs — it depends on
+    how the two models' errors covary (they can cancel or compound). Scoring the
+    actual sums is the only way to pick the best deployable pair.
     """
+    preds = {
+        ("new", "reg"): new_reg,
+        ("prod", "reg"): prod_reg,
+        ("new", "cas"): new_cas,
+        ("prod", "cas"): prod_cas,
+    }
+    out = {}
+    for r in ("new", "prod"):
+        for c in ("new", "prod"):
+            combined = np.clip(preds[(r, "reg")] + preds[(c, "cas")], 0, None)
+            out[(r, c)] = float(compute_metrics(y_cnt, combined)["rmse"])
+    return out
+
+
+def evaluate_promotion_combinations(
+    project: str, val_df: pd.DataFrame, models_dir: Path
+) -> dict[tuple[str, str], float] | None:
+    """
+    Score all four deployable (registered, casual) combinations on the combined
+    RMSE over the current val set. The two just-trained models are loaded from
+    models_dir (same local .txt files evaluate.py wrote); the two production
+    models by alias. All four are scored on the SAME val.csv, making the
+    comparison apples-to-apples.
+
+    Returns the combination→RMSE dict, or None if no production pair exists yet
+    (bootstrap — only new+new is deployable).
+    """
+    X_val = val_df[FEATURES]
+    y_cnt = val_df["cnt"].values
+
+    new_reg = lgb.Booster(model_file=str(models_dir / "lgbm_registered.txt"))
+    new_cas = lgb.Booster(model_file=str(models_dir / "lgbm_casual.txt"))
+
     try:
-        model_registered = mlflow.lightgbm.load_model(f"models:/{project}-registered@production")
-        model_casual = mlflow.lightgbm.load_model(f"models:/{project}-casual@production")
+        prod_reg = mlflow.lightgbm.load_model(f"models:/{project}-registered@production")
+        prod_cas = mlflow.lightgbm.load_model(f"models:/{project}-casual@production")
     except mlflow.exceptions.MlflowException:
         logger.info("No production model pair found — bootstrap (nothing to compare against)")
         return None
 
-    X_val = val_df[FEATURES]
-    y_val_cnt = val_df["cnt"].values
+    return _combination_rmses(
+        y_cnt,
+        np.expm1(new_reg.predict(X_val)),
+        np.expm1(new_cas.predict(X_val)),
+        np.expm1(prod_reg.predict(X_val)),
+        np.expm1(prod_cas.predict(X_val)),
+    )
 
-    pred_registered = np.expm1(model_registered.predict(X_val))
-    pred_casual = np.expm1(model_casual.predict(X_val))
-    pred_combined = np.clip(pred_registered + pred_casual, 0, None)
 
-    return float(compute_metrics(y_val_cnt, pred_combined)["rmse"])
+def choose_best_combination(combos: dict[tuple[str, str], float]) -> tuple[str, str]:
+    """
+    Source (registered, casual) of the lowest combined-RMSE combination — but
+    keeps the current production pair ("prod", "prod") on a tie, to avoid
+    churning aliases for no real gain.
+    """
+    prod_rmse = combos[("prod", "prod")]
+    best = min(combos, key=lambda k: combos[k])
+    return best if combos[best] < prod_rmse else ("prod", "prod")
 
 
-def promote_models_if_better(
+def promote_best_combination(
     client: MlflowClient,
     project: str,
-    new_rmse: float,
-    prod_rmse: float | None,
-) -> bool:
+    combos: dict[tuple[str, str], float] | None,
+) -> dict[str, bool]:
     """
-    Atomically promote the new registered+casual model pair to the production
-    alias if it beats the current production pair on the same validation set.
+    Promote the best deployable (registered, casual) pair — which may be mixed
+    (e.g. new registered + current-production casual). The current production
+    pair is one of the four candidates, so this never makes the combined
+    prediction worse: an alias only moves if another combination strictly beats
+    it. combos is None on bootstrap (no production pair yet) → promote both new.
 
-    Both models are promoted together (both-or-neither). RMSE is a combined
-    metric over the pair (predictions are summed before scoring), so there is
-    no measured RMSE for a mixed pair (e.g. new registered + old casual) —
-    only for (new+new) and (prod+prod). Promoting one model without the other
-    would mean acting on an untested combination. Lower RMSE is better.
+    When an alias actually moves, the deployed pair's combined RMSE is frozen
+    as a "combined_rmse_baseline" tag on the registered production version —
+    the baseline get_production_baseline_rmse reads. It is deliberately NOT
+    refreshed when nothing is promoted: re-tagging on every attempt would let
+    the baseline follow the data distribution, dulling is_performance_degraded
+    exactly when the model is getting worse.
 
-    Parameters
-    ----------
-    client : MlflowClient
-        MLflow tracking client.
-    project : str
-        Registered-model name prefix.
-    new_rmse : float
-        Combined RMSE of the newly trained pair on the current val set.
-    prod_rmse : float | None
-        Combined RMSE of the current production pair on the SAME val set, or
-        None if there is no production model yet (bootstrap).
-
-    Returns
-    -------
-    bool
-        True if the new pair was promoted to production.
+    Returns {"registered": bool, "casual": bool} — whether each slot moved to
+    the newly trained version.
     """
-    model_names = [f"{project}-registered", f"{project}-casual"]
+    slots = {"registered": f"{project}-registered", "casual": f"{project}-casual"}
     new_versions = {
-        name: max(client.search_model_versions(f"name='{name}'"), key=lambda v: int(v.version))
-        for name in model_names
+        slot: max(client.search_model_versions(f"name='{name}'"), key=lambda v: int(v.version))
+        for slot, name in slots.items()
     }
 
-    # Bootstrap: no production pair yet → promote directly.
-    if prod_rmse is None:
-        for name, version in new_versions.items():
-            logger.info(f"{name} — no production model found → promoting version {version.version}")
-            client.set_registered_model_alias(name, "production", version.version)
-        return True
+    # Bootstrap: no production pair yet → promote both new.
+    if combos is None:
+        for slot, name in slots.items():
+            version = new_versions[slot].version
+            logger.info(f"{name} — no production model found → promoting version {version}")
+            client.set_registered_model_alias(name, "production", version)
+        return {"registered": True, "casual": True}
 
-    if new_rmse < prod_rmse:
-        logger.info(
-            f"New model pair (rmse: {new_rmse:.4f}) beats production "
-            f"(rmse: {prod_rmse:.4f}) on the current val set → promoting both"
-        )
-        for name, version in new_versions.items():
-            prod_version = client.get_model_version_by_alias(name, "production")
-            client.set_registered_model_alias(name, "production", version.version)
-            client.set_registered_model_alias(name, "archived", prod_version.version)
-        return True
-
-    logger.warning(
-        f"New model pair (rmse: {new_rmse:.4f}) does not beat production "
-        f"(rmse: {prod_rmse:.4f}) on the current val set → keeping current"
+    decision = choose_best_combination(combos)
+    sources = {"registered": decision[0], "casual": decision[1]}
+    logger.info(
+        f"Best combination on current val: registered={sources['registered']}, "
+        f"casual={sources['casual']} (rmse {combos[decision]:.4f} vs "
+        f"production {combos[('prod', 'prod')]:.4f})"
     )
-    for name, version in new_versions.items():
-        client.set_registered_model_alias(name, "archived", version.version)
-    return False
+
+    promotions = {}
+    for slot, name in slots.items():
+        new_version = new_versions[slot].version
+        if sources[slot] == "new":
+            prod_version = client.get_model_version_by_alias(name, "production")
+            client.set_registered_model_alias(name, "production", new_version)
+            client.set_registered_model_alias(name, "archived", prod_version.version)
+            promotions[slot] = True
+        else:
+            # New version was trained but not deployed → archive it, leave the
+            # production alias untouched.
+            client.set_registered_model_alias(name, "archived", new_version)
+            promotions[slot] = False
+
+    if promotions["registered"] or promotions["casual"]:
+        registered_prod_version = (
+            new_versions["registered"].version
+            if promotions["registered"]
+            else client.get_model_version_by_alias(slots["registered"], "production").version
+        )
+        client.set_model_version_tag(
+            slots["registered"],
+            registered_prod_version,
+            "combined_rmse_baseline",
+            str(combos[decision]),
+        )
+
+    return promotions
+
+
+def snapshot_drift_reference(
+    client: MlflowClient, project: str, train_csv_path: Path, promotions: dict[str, bool]
+) -> None:
+    """
+    Snapshot the columns drift_detection.py needs (DRIFT_FEATURES + mnth)
+    from the just-regenerated train.csv, and attach it as an artifact on the
+    run of whichever model actually got promoted — registered if it moved,
+    otherwise casual. Always using registered's run regardless of which
+    model moved would, with a mixed pair, write over a snapshot already
+    logged there for an unrelated promotion.
+
+    Without this, drift_detection.py reads the live train.csv as its
+    reference — which keeps advancing every time dvc repro runs, even for
+    retrain attempts that don't get promoted. That desyncs the reference
+    from what the production model actually learned from, understating
+    drift relative to the model that's actually deployed.
+    """
+    from bike_sharing.monitoring.drift_detection import DRIFT_FEATURES
+
+    df = pd.read_csv(train_csv_path)
+    snapshot = df[DRIFT_FEATURES + ["mnth"]]
+    model_name = "registered" if promotions["registered"] else "casual"
+    version = client.get_model_version_by_alias(f"{project}-{model_name}", "production")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        snapshot_path = Path(tmpdir) / "drift_reference_snapshot.csv"
+        snapshot.to_csv(snapshot_path, index=False)
+        client.log_artifact(version.run_id, str(snapshot_path), artifact_path="drift_reference")
+
+    logger.info(f"Drift reference snapshot logged to production run {version.run_id}")
 
 
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
@@ -326,7 +420,9 @@ def main(cfg: DictConfig) -> None:
         "data_quality_issues": [],
         "new_rmse": None,
         "prod_rmse": None,
-        "promoted": None,
+        "promoted_registered": None,
+        "promoted_casual": None,
+        "combination_rmses": None,
         "performance_degraded": None,
         "baseline_rmse": None,
         "live_rmse": None,
@@ -352,6 +448,7 @@ def main(cfg: DictConfig) -> None:
             performance_history_path,
             baseline_rmse,
             cfg.monitoring.performance_degradation_threshold,
+            cfg.forecast.primary_horizon,
         )
         outcome["performance_degraded"] = performance_degraded
         outcome["baseline_rmse"] = baseline_rmse
@@ -420,41 +517,34 @@ def main(cfg: DictConfig) -> None:
         run_command(["dvc", "unfreeze", "build_features"])
         run_command(["dvc", "repro"])
 
-        # ── Promote if better ───────────────────────────────────────────────────
-        # Champion/challenger comparison on the SAME (current) val set: the new
-        # pair's RMSE comes from evaluate.py (metrics.json), and the production
-        # pair is re-scored on that same val.csv here — apples-to-apples.
-
-        # New (challenger) pair's RMSE — already computed by evaluate.py on the
-        # current val set during the dvc repro above.
-        metrics_path = Path(cfg.paths.artifacts_dir) / "evaluation" / "metrics.json"
-        with open(metrics_path) as f:
-            new_metrics = json.load(f)
-        new_rmse = new_metrics["rmse"]
-        outcome["new_rmse"] = new_rmse
-
-        # Production (champion) pair, re-scored on the current val set.
+        # ── Promote the best combination ─────────────────────────────────────────
+        # Evaluate all four deployable (registered, casual) combinations on the
+        # combined RMSE over the current val set, and promote the best pair —
+        # which may be mixed. The current production pair is one of the four, so
+        # this never makes the combined prediction worse.
         val_df = pd.read_csv(Path(cfg.paths.processed_dir) / "val.csv")
-        prod_rmse = evaluate_production_pair(cfg.project, val_df)
-        outcome["prod_rmse"] = prod_rmse
+        combos = evaluate_promotion_combinations(cfg.project, val_df, Path(cfg.paths.models_dir))
 
-        if prod_rmse is None:
+        if combos is None:
+            logger.info("Bootstrap promotion — no production baseline to compare against")
+        else:
+            outcome["new_rmse"] = combos[("new", "new")]
+            outcome["prod_rmse"] = combos[("prod", "prod")]
+            outcome["combination_rmses"] = {f"{r}+{c}": v for (r, c), v in combos.items()}
+
+        promotions = promote_best_combination(client, cfg.project, combos)
+        outcome["promoted_registered"] = promotions["registered"]
+        outcome["promoted_casual"] = promotions["casual"]
+
+        if promotions["registered"] or promotions["casual"]:
             logger.info(
-                f"Bootstrap promotion — new pair rmse: {new_rmse:.4f} (no production baseline)"
+                f"Promoted — registered: {promotions['registered']}, casual: {promotions['casual']}"
+            )
+            snapshot_drift_reference(
+                client, cfg.project, Path(cfg.paths.processed_dir) / "train.csv", promotions
             )
         else:
-            logger.info(
-                f"Champion/challenger on current val — "
-                f"new: {new_rmse:.4f} | production: {prod_rmse:.4f}"
-            )
-
-        promoted = promote_models_if_better(client, cfg.project, new_rmse, prod_rmse)
-        outcome["promoted"] = promoted
-
-        if promoted:
-            logger.info("New model pair promoted to Production")
-        else:
-            logger.warning("New model pair not promoted — previous Production pair retained")
+            logger.warning("No model promoted — previous production pair retained")
 
         run_command(["dvc", "freeze", "build_features"])
 

@@ -5,6 +5,7 @@ defaults:
   - simulation: default
   - paths: default
   - monitoring: default
+  - forecast: default
   - training: default
   - validation: default
   - alerting: default

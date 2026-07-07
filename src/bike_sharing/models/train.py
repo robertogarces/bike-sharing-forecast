@@ -8,6 +8,7 @@ import lightgbm as lgb
 import mlflow
 import mlflow.lightgbm
 import numpy as np
+from mlflow.exceptions import MlflowException
 import optuna
 import pandas as pd
 from omegaconf import DictConfig
@@ -279,19 +280,15 @@ def main(cfg: DictConfig) -> None:
 
             try:
                 client.create_registered_model(registered_name)
-            except Exception:
-                pass
+            except MlflowException as e:
+                if e.error_code != "RESOURCE_ALREADY_EXISTS":
+                    raise
 
             client.create_model_version(
                 name=registered_name,
                 source=mlflow.get_artifact_uri(artifact_path),
                 run_id=run_id,
             )
-
-        # ── Save models locally ───────────────────────────────────────────────
-        model_registered.booster_.save_model(Path(cfg.paths.models_dir) / "lgbm_registered.txt")
-        model_casual.booster_.save_model(Path(cfg.paths.models_dir) / "lgbm_casual.txt")
-        logger.info(f"Models saved to {cfg.paths.models_dir}")
 
         # ── Save models locally ───────────────────────────────────────────────
         model_registered.booster_.save_model(Path(cfg.paths.models_dir) / "lgbm_registered.txt")

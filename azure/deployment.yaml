@@ -1,5 +1,5 @@
 # Deployment attached to the endpoint: scoring script, serving env, SKU, and env vars.
-# MLFLOW_TRACKING_URI and MODEL_VERSION are injected into the container here.
+# MLFLOW_TRACKING_URI and MODEL_VERSION_REGISTERED/CASUAL are injected into the container here.
 $schema: https://azuremlschemas.azureedge.net/latest/managedOnlineDeployment.schema.json
 name: blue
 endpoint_name: bike-sharing-ep
@@ -13,4 +13,5 @@ instance_type: Standard_DS1_v2
 instance_count: 1
 environment_variables:
   MLFLOW_TRACKING_URI: azureml://australiaeast.api.azureml.ms/mlflow/v1.0/subscriptions/c1e35fa8-f310-4b3d-b316-7a220c06c672/resourceGroups/rg-bike-sharing/providers/Microsoft.MachineLearningServices/workspaces/mlw-bike-sharing
-  MODEL_VERSION: "6"
+  MODEL_VERSION_REGISTERED: "6"
+  MODEL_VERSION_CASUAL: "6"
