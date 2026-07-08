@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pandas as pd
 
 
@@ -12,3 +14,12 @@ def reconstruct_datetime(df: pd.DataFrame, column: str = "datetime") -> pd.DataF
     df["dteday"] = pd.to_datetime(df["dteday"])
     df[column] = df["dteday"] + pd.to_timedelta(df["hr"], unit="h")
     return df
+
+
+def utc_now() -> datetime:
+    """
+    Current instant as a naive datetime, explicitly UTC regardless of the
+    machine's local timezone. GitHub Actions runners default to UTC, but
+    nothing in the simulation clock should silently depend on that.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
