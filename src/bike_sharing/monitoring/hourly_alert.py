@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-from datetime import datetime
 from pathlib import Path
 
 import hydra
@@ -9,6 +8,7 @@ import pandas as pd
 from omegaconf import DictConfig
 
 from bike_sharing.utils.alerting import create_github_issue, send_email
+from bike_sharing.utils.datetime_utils import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ def main(cfg: DictConfig) -> None:
     email_to = os.environ.get("ALERT_EMAIL_TO")
 
     triggered = False
-    now = datetime.now()
+    now = utc_now()
 
     if output_drift_row is not None and output_drift_row.get("drift_detected") is True:
         triggered = True

@@ -1,7 +1,6 @@
 import json
 import logging
 from pathlib import Path
-from datetime import datetime
 
 import hydra
 import pandas as pd
@@ -15,7 +14,7 @@ from evidently.pipeline.column_mapping import ColumnMapping
 from bike_sharing.models.train import FEATURES
 from bike_sharing.utils.mlflow_utils import setup_mlflow
 from bike_sharing.utils.monitoring_utils import append_monitoring_record
-from bike_sharing.utils.datetime_utils import reconstruct_datetime
+from bike_sharing.utils.datetime_utils import reconstruct_datetime, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +229,7 @@ def run_drift_report(
     }
 
     summary = {
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": utc_now().isoformat(),
         "n_features": n_total,
         "n_drifted": n_drifted,
         "drift_share": round(drift_share, 4),

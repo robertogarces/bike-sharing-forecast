@@ -1,7 +1,6 @@
 import logging
 import tempfile
 from pathlib import Path
-from datetime import datetime
 
 import hydra
 from omegaconf import DictConfig
@@ -15,7 +14,7 @@ from mlflow.tracking import MlflowClient
 from bike_sharing.data.validate_data import validate_data_quality
 from bike_sharing.models.train import compute_metrics, FEATURES
 from bike_sharing.utils.command_utils import run_command
-from bike_sharing.utils.datetime_utils import reconstruct_datetime
+from bike_sharing.utils.datetime_utils import reconstruct_datetime, utc_now
 from bike_sharing.utils.mlflow_utils import setup_mlflow
 
 logger = logging.getLogger(__name__)
@@ -105,7 +104,7 @@ def write_retrain_marker(hour_past_path: Path, marker_path: Path) -> None:
         json.dump(
             {
                 "data_cutoff": data_cutoff.isoformat(),
-                "written_at": datetime.now().isoformat(),
+                "written_at": utc_now().isoformat(),
             },
             f,
             indent=2,
@@ -412,7 +411,7 @@ def main(cfg: DictConfig) -> None:
     # likely skip retraining entirely (no drift), which is otherwise
     # invisible without reading CI logs.
     outcome = {
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": utc_now().isoformat(),
         "retrain_attempted": False,
         "skip_reason": None,
         "data_quality_checked": False,
