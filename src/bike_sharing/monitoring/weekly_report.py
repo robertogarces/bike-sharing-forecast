@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-from datetime import datetime
 from pathlib import Path
 
 import hydra
@@ -9,6 +8,7 @@ import pandas as pd
 from omegaconf import DictConfig
 
 from bike_sharing.utils.alerting import create_github_issue, send_email
+from bike_sharing.utils.datetime_utils import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +206,7 @@ def main(cfg: DictConfig) -> None:
     horizon_curve = _load_horizon_curve(performance_history_path)
 
     body = build_weekly_digest(drift_summary, retrain_outcome, performance_summary, horizon_curve)
-    title = f"Weekly Monitoring Report — {datetime.now():%Y-%m-%d}"
+    title = f"Weekly Monitoring Report — {utc_now():%Y-%m-%d}"
 
     create_github_issue(title, body, [cfg.alerting.weekly_report_label], cfg.alerting.dedup_hours)
 

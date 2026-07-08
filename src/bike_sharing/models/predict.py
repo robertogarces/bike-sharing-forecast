@@ -1,7 +1,6 @@
 import json
 import logging
 from pathlib import Path
-from datetime import datetime
 
 import hydra
 import numpy as np
@@ -12,7 +11,7 @@ from omegaconf import DictConfig
 
 from bike_sharing.features.build_features import build_lag_features, build_calendar_features
 from bike_sharing.models.train import FEATURES
-from bike_sharing.utils.datetime_utils import reconstruct_datetime
+from bike_sharing.utils.datetime_utils import reconstruct_datetime, utc_now
 from bike_sharing.utils.simulation_utils import load_simulation_state
 
 logger = logging.getLogger(__name__)
@@ -261,7 +260,7 @@ def _trajectory_to_records(
     prediction_source: str = "model",
 ) -> list[dict]:
     """Convert a predict_trajectory() DataFrame into predictions.csv row dicts."""
-    predicted_at = datetime.now().isoformat()
+    predicted_at = utc_now().isoformat()
     records = []
     for _, row in trajectory.iterrows():
         records.append(
@@ -477,7 +476,7 @@ def run(cfg: DictConfig) -> None:
     logger.info(f"Current hour: {current_dt} | Predicting: h+1..h+{horizon} from here")
 
     # ── Validate data freshness ───────────────────────────────────────────────
-    now = datetime.now()
+    now = utc_now()
     data_lag = now - current_dt.to_pydatetime()
 
     if data_lag > pd.Timedelta(hours=2):
@@ -557,7 +556,7 @@ def run(cfg: DictConfig) -> None:
     if validation is not None and not validation["valid"]:
         logger.error(f"Hourly data validation failed — not using the model: {validation['issues']}")
 
-        predicted_at = datetime.now().isoformat()
+        predicted_at = utc_now().isoformat()
         fallback_records = []
         for k in range(1, horizon + 1):
             target_dt = current_dt + pd.Timedelta(hours=k)

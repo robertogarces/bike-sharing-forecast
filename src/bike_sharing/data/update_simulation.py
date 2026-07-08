@@ -8,7 +8,7 @@ import pandas as pd
 from omegaconf import DictConfig
 
 from bike_sharing.data.validate_data import validate_data_quality
-from bike_sharing.utils.datetime_utils import reconstruct_datetime
+from bike_sharing.utils.datetime_utils import reconstruct_datetime, utc_now
 from bike_sharing.utils.simulation_utils import load_simulation_state
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ def write_hourly_validation_flag(issues: list[str], n_checked: int, flag_path: P
     with open(flag_path, "w") as f:
         json.dump(
             {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": utc_now().isoformat(),
                 "n_rows_checked": n_checked,
                 "valid": len(issues) == 0,
                 "issues": issues,
@@ -118,7 +118,7 @@ def main(cfg: DictConfig) -> None:
         return
 
     # ── Move revealed records ─────────────────────────────────────────────────
-    now = datetime.now()
+    now = utc_now()
     logger.info(f"Current time: {now.strftime('%Y-%m-%d %H:%M')}")
 
     past, n_moved = move_revealed_records(

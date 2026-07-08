@@ -1,6 +1,5 @@
 import logging
 from pathlib import Path
-from datetime import datetime
 
 import hydra
 import mlflow
@@ -10,7 +9,7 @@ from omegaconf import DictConfig
 from bike_sharing.models.train import compute_metrics
 from bike_sharing.utils.mlflow_utils import setup_mlflow
 from bike_sharing.utils.monitoring_utils import append_monitoring_record
-from bike_sharing.utils.datetime_utils import reconstruct_datetime
+from bike_sharing.utils.datetime_utils import reconstruct_datetime, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +115,7 @@ def compute_rolling_performance(joined: pd.DataFrame, n_hours: int) -> dict:
     skill_vs_naive = 1 - metrics["rmse"] / naive_rmse if naive_rmse else None
 
     return {
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": utc_now().isoformat(),
         "n_hours": n_hours,
         "n_resolved": len(recent),
         **metrics,

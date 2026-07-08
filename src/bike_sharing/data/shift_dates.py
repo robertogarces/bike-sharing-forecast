@@ -11,11 +11,12 @@ To reset the simulation, delete the simulation_state file and re-run.
 import json
 import logging
 from pathlib import Path
-from datetime import datetime
 
 import hydra
 import pandas as pd
 from omegaconf import DictConfig
+
+from bike_sharing.utils.datetime_utils import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ def shift_dates(
     state = {
         "reference_date": reference_date.strftime("%Y-%m-%d"),
         "future_pct": future_pct,
-        "shift_applied_at": datetime.now().isoformat(),
+        "shift_applied_at": utc_now().isoformat(),
         "future_start_date": future_start.strftime("%Y-%m-%d"),
         "future_end_date": future_end.strftime("%Y-%m-%d"),
         "n_future_records": n_future,
