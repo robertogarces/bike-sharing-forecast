@@ -244,7 +244,9 @@ def _inject_styles(subtitle: str, live_ring: bool = False) -> None:
     )
     st.markdown(
         f"<div style='font-size:1.6rem;font-weight:600;color:#4a5b6b;margin-top:-6px;"
-        f"margin-bottom:2px'>{subtitle}</div>"
+        f"margin-bottom:2px'>{subtitle}"
+        f"<span style='font-size:0.95rem;font-weight:400;color:#8a97a3'> · All times UTC</span>"
+        f"</div>"
         "<style>"
         ".block-container{padding-top:2rem;padding-bottom:1rem;}"
         f'{first_row} [data-testid="stMetricValue"]{{font-size:2.4rem;}}'
@@ -371,15 +373,24 @@ def render_monitoring():
     if metrics_by_model is None:
         st.info("No resolved model predictions yet — metrics appear once actuals arrive.")
     else:
-        # The combined row is the first metric block on the page, so the shared
-        # style enlarges it (headline); registered/casual read as supporting rows.
-        for model_name, m in metrics_by_model.items():
-            st.markdown(f"**{model_name}**")
+
+        def _render_metric_row(m: dict) -> None:
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("RMSE", f"{m['rmse']:.1f} bikes")
             c2.metric("RMSLE", f"{m['rmsle']:.3f}")
             c3.metric("MAE", f"{m['mae']:.1f} bikes")
             c4.metric("R²", f"{m['r2']:.3f}")
+
+        # Combined is the headline (first metric block on the page, so the
+        # shared style enlarges it) and always visible; registered/casual are
+        # supporting detail, collapsed by default so the page doesn't show
+        # three full metric blocks at once.
+        st.markdown("**Combined**")
+        _render_metric_row(metrics_by_model["Combined"])
+
+        for model_name in ("Registered", "Casual"):
+            with st.expander(model_name):
+                _render_metric_row(metrics_by_model[model_name])
 
     st.divider()
 
