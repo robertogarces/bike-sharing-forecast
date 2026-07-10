@@ -371,7 +371,10 @@ class _FakeClientForBaseline:
 
     def get_model_version_by_alias(self, name, alias):
         if self._version is None:
-            raise mlflow.exceptions.MlflowException("no production version")
+            raise mlflow.exceptions.MlflowException(
+                "no production version",
+                error_code=mlflow.exceptions.RESOURCE_DOES_NOT_EXIST,
+            )
         return self._version
 
     def get_run(self, run_id):
@@ -404,6 +407,25 @@ def test_get_production_baseline_rmse_falls_back_to_run_metric_without_tag():
 def test_get_production_baseline_rmse_returns_none_when_no_production():
     client = _FakeClientForBaseline(version=None)
     assert get_production_baseline_rmse(client, "bike-sharing-forecast") is None
+
+
+def test_get_production_baseline_rmse_reraises_non_not_found_errors():
+    """
+    A transient MLflow error (auth, network, 5xx) must propagate, not be
+    read as bootstrap — silently swallowing it would return None and
+    disable the performance-degradation gate on an infra hiccup instead of
+    a real "no production model yet" case.
+    """
+
+    class _FlakyClient:
+        def get_model_version_by_alias(self, name, alias):
+            raise mlflow.exceptions.MlflowException(
+                "temporary registry outage",
+                error_code=mlflow.exceptions.RESOURCE_EXHAUSTED,
+            )
+
+    with pytest.raises(mlflow.exceptions.MlflowException):
+        get_production_baseline_rmse(_FlakyClient(), "bike-sharing-forecast")
 
 
 # ── promote_best_combination ──────────────────────────────────────────────────
@@ -592,12 +614,7 @@ def test_snapshot_drift_reference_logs_drift_features_and_mnth(tmp_path):
 
     client = _FakeClientForSnapshot(run_id="run123")
 
-    snapshot_drift_reference(
-        client,
-        "bike-sharing-forecast",
-        train_csv_path,
-        promotions={"registered": True, "casual": False},
-    )
+    snapshot_drift_reference(client, "bike-sharing-forecast", train_csv_path)
 
     assert len(client.logged_artifacts) == 1
     run_id, artifact_path, logged_df = client.logged_artifacts[0]
@@ -607,11 +624,13 @@ def test_snapshot_drift_reference_logs_drift_features_and_mnth(tmp_path):
     assert client.alias_lookups == [("bike-sharing-forecast-registered", "production")]
 
 
-def test_snapshot_drift_reference_uses_casual_run_when_only_casual_promoted(tmp_path):
+def test_snapshot_drift_reference_always_uses_registered_run(tmp_path):
     """
-    A mixed promotion where only casual moved must attach the snapshot to
-    casual's run, not registered's — registered's production run didn't
-    change and attaching there would overwrite an unrelated past snapshot.
+    A mixed promotion where only casual moved must still attach the snapshot
+    to registered's run, not casual's — drift_detection.py's
+    _load_reference_snapshot only ever reads from registered's production
+    run, so that's the only place a refreshed reference actually takes
+    effect regardless of which model in the pair moved.
     """
     train_csv_path = tmp_path / "train.csv"
     pd.DataFrame({**{f: [1.0, 2.0] for f in DRIFT_FEATURES}, "mnth": [1, 2]}).to_csv(
@@ -620,11 +639,6 @@ def test_snapshot_drift_reference_uses_casual_run_when_only_casual_promoted(tmp_
 
     client = _FakeClientForSnapshot(run_id="run456")
 
-    snapshot_drift_reference(
-        client,
-        "bike-sharing-forecast",
-        train_csv_path,
-        promotions={"registered": False, "casual": True},
-    )
+    snapshot_drift_reference(client, "bike-sharing-forecast", train_csv_path)
 
-    assert client.alias_lookups == [("bike-sharing-forecast-casual", "production")]
+    assert client.alias_lookups == [("bike-sharing-forecast-registered", "production")]

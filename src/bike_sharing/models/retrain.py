@@ -164,7 +164,9 @@ def get_production_baseline_rmse(client: MlflowClient, project: str) -> float | 
     """
     try:
         version = client.get_model_version_by_alias(f"{project}-registered", "production")
-    except mlflow.exceptions.MlflowException:
+    except mlflow.exceptions.MlflowException as e:
+        if e.error_code != "RESOURCE_DOES_NOT_EXIST":
+            raise
         logger.info("No production model found — performance gate not evaluated (bootstrap)")
         return None
     if "combined_rmse_baseline" in version.tags:
@@ -268,7 +270,9 @@ def evaluate_promotion_combinations(
     try:
         prod_reg = mlflow.lightgbm.load_model(f"models:/{project}-registered@production")
         prod_cas = mlflow.lightgbm.load_model(f"models:/{project}-casual@production")
-    except mlflow.exceptions.MlflowException:
+    except mlflow.exceptions.MlflowException as e:
+        if e.error_code != "RESOURCE_DOES_NOT_EXIST":
+            raise
         logger.info("No production model pair found — bootstrap (nothing to compare against)")
         return None
 
@@ -366,16 +370,16 @@ def promote_best_combination(
     return promotions
 
 
-def snapshot_drift_reference(
-    client: MlflowClient, project: str, train_csv_path: Path, promotions: dict[str, bool]
-) -> None:
+def snapshot_drift_reference(client: MlflowClient, project: str, train_csv_path: Path) -> None:
     """
     Snapshot the columns drift_detection.py needs (DRIFT_FEATURES + mnth)
-    from the just-regenerated train.csv, and attach it as an artifact on the
-    run of whichever model actually got promoted — registered if it moved,
-    otherwise casual. Always using registered's run regardless of which
-    model moved would, with a mixed pair, write over a snapshot already
-    logged there for an unrelated promotion.
+    from the just-regenerated train.csv, and attach it as an artifact on
+    registered's current production run. Always registered, regardless of
+    whether registered or casual is the model that actually moved this
+    promotion — drift_detection.py's _load_reference_snapshot only ever
+    reads from registered's run as its single source of truth, so a mixed
+    pair where only casual changed would otherwise never refresh the
+    reference drift_detection actually consults.
 
     Without this, drift_detection.py reads the live train.csv as its
     reference — which keeps advancing every time dvc repro runs, even for
@@ -387,8 +391,7 @@ def snapshot_drift_reference(
 
     df = pd.read_csv(train_csv_path)
     snapshot = df[DRIFT_FEATURES + ["mnth"]]
-    model_name = "registered" if promotions["registered"] else "casual"
-    version = client.get_model_version_by_alias(f"{project}-{model_name}", "production")
+    version = client.get_model_version_by_alias(f"{project}-registered", "production")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         snapshot_path = Path(tmpdir) / "drift_reference_snapshot.csv"
@@ -540,7 +543,7 @@ def main(cfg: DictConfig) -> None:
                 f"Promoted — registered: {promotions['registered']}, casual: {promotions['casual']}"
             )
             snapshot_drift_reference(
-                client, cfg.project, Path(cfg.paths.processed_dir) / "train.csv", promotions
+                client, cfg.project, Path(cfg.paths.processed_dir) / "train.csv"
             )
         else:
             logger.warning("No model promoted — previous production pair retained")
