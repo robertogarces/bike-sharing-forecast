@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-07-06T02:31:54.594815",
+  "timestamp": "2026-07-10T06:08:22.650091",
   "n_features": 19,
-  "n_drifted": 12,
-  "drift_share": 0.6316,
+  "n_drifted": 13,
+  "drift_share": 0.6842,
   "drift_detected": true,
   "threshold": 0.5,
   "drift_by_column": {
@@ -98,8 +98,8 @@
     },
     "weathersit": {
       "stattest": "chi-square p_value",
-      "score": 0.0821,
-      "drifted": false
+      "score": 0.0001,
+      "drifted": true
     }
   }
 }
