@@ -51,6 +51,13 @@ def shift_dates(
 
         shift = reference_date - date_of_first_future_record
 
+    Invariant: only `dteday` is shifted here. The calendar columns
+    (`weekday`/`workingday`/`season`/`holiday`/`mnth`) travel untouched from
+    the original dataset — their true day-of-week no longer matches the
+    shifted `dteday`. Nothing downstream may ever recompute them from the
+    shifted `dteday`; they must always be read straight from the row, which
+    still carries the original value the model was trained on.
+
     Parameters
     ----------
     df : pd.DataFrame
