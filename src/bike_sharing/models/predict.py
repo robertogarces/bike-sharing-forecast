@@ -12,6 +12,7 @@ from omegaconf import DictConfig
 from bike_sharing.features.build_features import build_lag_features, build_calendar_features
 from bike_sharing.models.train import FEATURES
 from bike_sharing.utils.datetime_utils import reconstruct_datetime, utc_now
+from bike_sharing.utils.mlflow_utils import setup_mlflow
 from bike_sharing.utils.simulation_utils import load_simulation_state
 
 logger = logging.getLogger(__name__)
@@ -456,6 +457,8 @@ def load_hourly_validation_flag(flag_path: Path) -> dict | None:
 
 
 def run(cfg: DictConfig) -> None:
+    setup_mlflow()
+
     raw_dir = Path(cfg.paths.raw_dir)
     state_path = Path(cfg.paths.simulation_state)
     pred_path = Path(cfg.paths.predictions_path)
