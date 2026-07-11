@@ -87,6 +87,8 @@ After (20:30):
 }
 ```
 
+`shift_applied_at` and other timestamps written by the simulation pipeline use `utc_now()` rather than a naive local-clock read, so they're unambiguous regardless of where the script runs. See [`docs/forecasting.md`](forecasting.md) § 8 for why this matters.
+
 ---
 
 ## 3. Initialization
@@ -148,8 +150,10 @@ Once initialized, the simulation runs automatically via GitHub Actions:
 **Every hour** (`hourly.yml`):
 ```
 update_simulation.py  →  reveal records whose datetime has passed
-predict.py            →  predict next-hour demand using the latest past data
+predict.py            →  recursively roll out the h+1..h+K trajectory
 ```
+
+See [`docs/forecasting.md`](forecasting.md) for what "trajectory" means here — `predict.py` no longer produces a single next-hour prediction, it produces one row per lead time (h+1 through h+K) from a single origin each run.
 
 **Every Monday** (`weekly.yml`):
 ```
@@ -166,7 +170,7 @@ make retrain    # retrain if drift detected
 ```
 
 **Checking simulation progress:**  
-The operations dashboard (sidebar) shows the percentage of future data consumed and the date until which data is available. The logs of `update_simulation.py` also report progress:
+The logs of `update_simulation.py` report progress:
 
 ```
 [INFO] - Simulation progress: 92.3% complete
@@ -176,13 +180,17 @@ The operations dashboard (sidebar) shows the percentage of future data consumed 
 
 ## 6. Backfilling Missing Predictions
 
-The hourly workflow occasionally misses a run — a GitHub Actions delay, a manual skip, or a temporary outage. When `predict.py` detects a gap between the last saved prediction and the current hour, it automatically fills in the missing predictions before generating the current one.
+The hourly workflow occasionally misses a run — a GitHub Actions delay, a manual skip, or a temporary outage. When `predict.py` detects a gap, it automatically backfills before generating the current trajectory.
+
+Since each hourly run now serves a full h+1..h+K trajectory rather than a single prediction (see [`docs/forecasting.md`](forecasting.md)), a missed run means a whole missing trajectory, not one missing row. Backfill is therefore framed around **origins** rather than hours: an origin is considered recorded once its horizon=1 row exists in `predictions.csv`.
 
 ### How it works
 
-1. `get_missing_hours` reads `predictions.csv` and `hour_past.csv` and identifies hours that have already passed but have no prediction record.
-2. For each missing hour, it reconstructs the feature set using only the data that would have been available *at that moment* (i.e., records strictly before the target hour).
-3. It appends each backfilled prediction to `predictions.csv` before the normal prediction step runs.
+1. `get_missing_origins` reads `predictions.csv` and `hour_past.csv` and identifies origins that have already passed but have no horizon=1 prediction record.
+2. For each missing origin, it re-runs the full recursive trajectory (`predict_trajectory()`) on the past-data slice up to that origin — reproducing exactly what the live rollout would have produced, one row per horizon.
+3. It appends every backfilled origin's rows (up to K per origin) to `predictions.csv` before the current trajectory is generated.
+
+`predictions.csv`'s dedup key is `(timestamp_predicted, horizon)` — see [`docs/forecasting.md`](forecasting.md) § 5 for the full column/dedup schema.
 
 ### Cold start
 
@@ -204,9 +212,10 @@ max_backfill_hours: 48
 
 ### Limitations
 
-- Backfill requires at least 168 hours (7 days) of prior history to build lag features. Hours with insufficient history are skipped.
+- Backfill requires at least 168 hours (7 days) of prior history to build lag features. Origins with insufficient history are skipped.
 - Backfilled predictions are generated retroactively and will not match what the model would have predicted in real time if the model was retrained in the interim.
 - The `predicted_at` timestamp reflects when the backfill ran, not the original scheduled time.
+- A backfilled origin produces up to `horizon` rows, so the effective backfilled-row count is `missing_origins × horizon` — worth accounting for when reasoning about `max_backfill_hours` capacity.
 
 ---
 
@@ -244,7 +253,7 @@ git push
 
 ---
 
-## 7. What Happens When the Future Data Runs Out?
+## 8. What Happens When the Future Data Runs Out?
 
 When `hour_future.csv` becomes empty, `update_simulation.py` exits with a warning:
 
