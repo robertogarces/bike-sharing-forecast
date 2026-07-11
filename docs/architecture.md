@@ -87,20 +87,46 @@ update_simulation.py
     │ moves records from hour_future.csv to hour_past.csv
     ▼
 predict.py
-    │ loads model from MLflow registry (production alias)
+    │ loads production models (registered + casual) from MLflow registry
+    │ recursively rolls out h+1..h+K predictions from a single origin
+    │ (see docs/forecasting.md)
     ▼
 data/predictions/predictions.csv     ← append-only prediction log
+                                        (horizon column; dedup key = timestamp_predicted + horizon)
+
+─── Monitoring (runs hourly) ────────────────────────────────────
+
+output_drift_detection.py
+    │ compares recent output distribution (primary horizon only) vs reference
+    └── artifacts/drift/output_drift_detected.json
+    │
+    ▼
+hourly_alert.py
+    │ checks output drift / data-quality signals, opens/dedupes a GitHub
+    │ issue, sends an email alert (never fails the job — see § 5)
 
 ─── Monitoring (runs weekly) ────────────────────────────────────
 
+performance_monitoring.py
+    │ computes rolling RMSE/RMSLE/MAE/R² per horizon vs seasonal-naive baseline
+    └── data/monitoring/performance_history.csv
+    │
+    ▼
 drift_detection.py
-    │ compares train.csv (reference) vs recent hour_past.csv (current)
+    │ compares train.csv (reference snapshot) vs recent hour_past.csv (current)
     └── artifacts/drift/drift_detected.json
     │
     ▼
 retrain.py
-    │ if drift detected and enough data: dvc repro → promote if better
-    └── new model version in MLflow registry
+    │ if drift detected and enough data: dvc repro → evaluate all 4
+    │ (registered, casual) × (new, prod) combinations → promote lowest
+    │ combined RMSE → snapshot drift reference at promotion
+    └── new model version(s) in MLflow registry
+    │
+    ▼
+weekly_report.py
+    │ builds a digest (primary-horizon performance + per-horizon curve,
+    │ drift status, retrain outcome), opens a GitHub issue, emails it
 ```
 
 ---
@@ -131,21 +157,39 @@ Loads the trained models, runs predictions on the validation set, computes metri
 Three workflows automate the production layer:
 
 ### `ci.yml` — Continuous Integration
-Runs on every push to `main`. Executes the full test suite (45 unit tests) on a clean Ubuntu environment. Catches regressions before they reach production.
+Runs on every push to `main`. Executes the full test suite (156 unit tests) on a clean Ubuntu environment. Catches regressions before they reach production.
 
 ### `hourly.yml` — Hourly Prediction
 Runs every hour at minute 0 (`cron: "0 * * * *"`). Steps:
 1. Pull latest code and data from GitHub / DagsHub
 2. `update_simulation.py` — move newly-revealed records from future to past
-3. `predict.py` — load production model from MLflow registry, predict next-hour demand, append to `predictions.csv`
-4. Push updated simulation files back to DagsHub via DVC
-5. Commit updated `.dvc` pointer files to GitHub
+3. `predict.py` — load production models from MLflow registry, recursively roll out the h+1..h+K trajectory (see [`docs/forecasting.md`](forecasting.md)), append to `predictions.csv`
+4. `output_drift_detection.py` — compare the primary horizon's recent output distribution against a reference window
+5. `hourly_alert.py` — check output drift / data-quality signals; open or dedupe a GitHub issue and send an email alert if needed (see § 5, "Alerting fails open, not closed")
+6. Push updated simulation files back to DagsHub via DVC
+7. Commit updated `.dvc` pointer files to GitHub
 
 ### `weekly.yml` — Drift Detection and Retraining
 Runs every Monday at midnight (`cron: "0 0 * * 1"`). Steps:
 1. Pull latest code and data
-2. `drift_detection.py` — compare feature distributions between the training set and the most recent 168 hours. Uses the Kolmogorov-Smirnov test. Writes `drift_detected.json`.
-3. `retrain.py` — if drift is detected and enough new data has accumulated (≥720 hours), unfreeze `build_features`, run `dvc repro`, and promote the new model to production only if it improves RMSE.
+2. `performance_monitoring.py` — compute rolling RMSE/RMSLE/MAE/R² per horizon against a seasonal-naive baseline; write `performance_history.csv`
+3. `drift_detection.py` — compare feature distributions between the training set (frozen at promotion time — see § 5, "Combination-based promotion") and the most recent 168 hours. Uses the Kolmogorov-Smirnov test. Writes `drift_detected.json`.
+4. `retrain.py` — if drift is detected and enough new data has accumulated (≥720 hours), unfreeze `build_features`, run `dvc repro`, evaluate all four (registered, casual) × (new, production) combinations by combined RMSE, and promote whichever combination wins.
+5. `weekly_report.py` — build a digest (primary-horizon performance, per-horizon skill curve, drift status, retrain outcome), open a GitHub issue, and email it. Runs with `if: always()`, so a failure earlier in the job still produces and sends a report.
+
+Alerting configuration (SMTP credentials, GitHub issue labels, alert deduplication window) lives in `configs/alerting/default.yaml`.
+
+### Dashboard
+
+The Streamlit dashboard (`src/bike_sharing/dashboard/app.py`) exposes two pages via `st.navigation()`:
+
+**Operations** — what an operator acts on. A KPI row (Now / Next hour / Next peak / Next quietest, with a live-ring animation on "Now"), an hourly-forecast strip, and a "Forecast Trajectory" chart spanning the full h+1..h+K rollout (see [`docs/forecasting.md`](forecasting.md) § 9). This page was redesigned to answer only "what should I act on right now" — it previously mixed in model-quality views (a gauge, a 24h prediction-history chart, a registered/casual breakdown, a full forecast-detail table) that have moved to Monitoring or been removed as redundant.
+
+**Monitoring** — is the model healthy. Model Metrics (Combined always visible; Registered/Casual collapsed into expanders — three fully-expanded blocks of four metrics each was visually saturated), Model Status (live MLflow registry query), Retrain Gate — Last Run, Live Performance Over Time (primary horizon), Performance by Horizon — Latest, Input Drift, and Output Drift Over Time.
+
+Both pages label their subtitle "· All times UTC," since the dashboard's clock is tied to the UTC `hr` feature (see [`docs/forecasting.md`](forecasting.md) § 8 for why `utc_now()` matters here).
+
+Two operational bugs were fixed along the way, worth noting since they explain non-obvious UI elements: fallback predictions (served when hourly data validation fails — a full lag-168 trajectory instead of a model prediction) are now explicitly marked with a banner, a distinct chart marker, and a table column, rather than being indistinguishable from real model output; and a false-alert bug in `hourly_alert.py` (`bool(float('nan'))` evaluates to `True` in Python) was fixed by checking `.get("drift_detected") is True` explicitly instead of a bare truthy check.
 
 ---
 
@@ -181,6 +225,22 @@ Described in Section 3. The key insight is that data arrival (hourly) and model 
 ### DagsHub for storage and tracking
 
 DagsHub provides DVC remote storage and a hosted MLflow server in a single free platform. This avoids setting up separate S3, EC2, and MLflow infrastructure, while still demonstrating the concepts (data versioning, experiment tracking, model registry) that would apply in a production AWS/GCP environment.
+
+### Horizon lives in serving, not training
+
+Rather than training a dedicated model per lead time, the system reuses the single h+1 model and rolls it out recursively to produce h+1..h+K predictions (see [`docs/forecasting.md`](forecasting.md)). This was validated empirically, not just assumed: `notebooks/04_experimento_horizontes.ipynb` compares a direct per-horizon model against the recursive rollout on the real feature pipeline, and the recursive approach wins on both cost (one model instead of K) and accuracy (its RMSE stays consistently lower than the direct model's ceiling at every horizon beyond h+1, since the direct model loses its short-lag features as the horizon grows).
+
+### Combination-based promotion instead of independent per-model promotion
+
+`registered` and `casual` are no longer promoted independently based on each model's own RMSE improving. Instead, `retrain.py` evaluates all four combinations of (registered, casual) × (new, production) using actual summed and clipped predictions on the same validation set, and promotes whichever combination has the lowest combined RMSE — defaulting to keeping the current pair on a tie. Because the current production pair is always one of the four candidates evaluated, promotion can never make the combined prediction worse. This can produce a mixed pair (e.g. a new `registered` model paired with the existing `casual` model), which is why Azure pins `MODEL_VERSION_REGISTERED`/`MODEL_VERSION_CASUAL` independently (see [`docs/azure.md`](azure.md)). At promotion time, a snapshot of the drift-relevant features is also attached to the registered model's production run as an MLflow artifact, so the drift reference used by `drift_detection.py` reflects what the production model actually learned from, not the ever-advancing live `train.csv`. See [`docs/known-issues.md`](known-issues.md) for the residual atomicity concern in this promotion loop.
+
+### Dashboard split into Operations vs Monitoring
+
+The dashboard's two pages separate "what to act on" from "is the model healthy" — see the Dashboard subsection above for the full breakdown of each page's contents and the redesign rationale.
+
+### Alerting fails open, not closed
+
+`send_email()` never raises — a missing or invalid SMTP secret should not fail the predict/retrain job it's attached to. Failures are instead surfaced as a GitHub Actions `::warning::` annotation, visible directly in the workflow run UI, so a silent alerting failure doesn't go unnoticed just because the pipeline job itself stayed green.
 
 ---
 
