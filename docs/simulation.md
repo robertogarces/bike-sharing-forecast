@@ -221,26 +221,20 @@ max_backfill_hours: 48
 
 ## 7. Resetting the Simulation
 
-To restart the simulation from scratch — for example, to change `reference_date` or `future_pct` — delete the state file and the simulation data files, then re-initialize:
+To restart the simulation from scratch — for example, to change `reference_date` or `future_pct` — wipe the simulation state and re-initialize:
 
 ```bash
-# Delete simulation state
-rm data/simulation_state.json
-
-# Delete simulation data files
-rm data/raw/hour_past.csv
-rm data/raw/hour_future.csv
-rm data/raw/hour_shifted.csv
-
-# Delete prediction log
-rm -rf data/predictions/
+make delete-simulation          # dry run: prints exactly what would be deleted, deletes nothing
+make delete-simulation FORCE=1  # actually deletes it
 
 # Re-initialize
 make setup
 make repro
 ```
 
-⚠️ **This is destructive.** The prediction log and any retraining history will be lost. The MLflow experiment history on DagsHub is not affected — model versions and runs remain.
+`delete-simulation` removes the state file, the past/future/shifted raw data, the prediction log, `data/last_retrain.json`, and all accumulated drift/performance/output-drift/validation history under `artifacts/` (plus their `.dvc` pointer files) — everything that constitutes *this run* of the simulation. It deliberately leaves `artifacts/models/` and `artifacts/evaluation/` untouched, since the trained model belongs to the static pipeline, not the simulation.
+
+⚠️ **This is destructive.** The prediction log and any retraining/monitoring history will be lost. The MLflow experiment history on DagsHub is not affected — model versions and runs remain.
 
 After resetting locally, push the updated DVC pointer files so GitHub Actions uses the new simulation state:
 

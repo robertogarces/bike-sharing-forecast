@@ -93,7 +93,7 @@ First configure your Kaggle and DagsHub credentials (see [Setup & Usage](docs/us
 ```bash
 conda create -n bike-sharing-forecast python=3.11 -y
 conda activate bike-sharing-forecast
-pip install -r requirements.txt && pip install -e .
+make install    # install dependencies + this package
 
 make setup      # download dataset + initialize the simulation (run once)
 make repro      # run the full pipeline: features -> train -> evaluate

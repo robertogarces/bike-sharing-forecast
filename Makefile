@@ -1,67 +1,101 @@
-.PHONY: help setup repro predict update drift retrain dashboard test
+# Bike Sharing Demand Forecasting — common tasks. Run `make help` to list targets.
+PYTHON ?= python
 
-# ── Help ──────────────────────────────────────────────────────────────────────
-help:
-	@echo ""
-	@echo "🚲 Bike Sharing Demand Forecasting"
-	@echo ""
-	@echo "Setup"
-	@echo "  make setup        Download dataset and initialize simulation"
-	@echo "  make repro        Run full DVC pipeline (features + train + evaluate)"
-	@echo ""
-	@echo "Simulation"
-	@echo "  make update       Reveal new records from future to past"
-	@echo "  make predict      Update simulation and predict next hour demand"
-	@echo ""
-	@echo "Monitoring"
-	@echo "  make drift        Run drift detection"
-	@echo "  make retrain      Retrain model if drift detected"
-	@echo ""
-	@echo "Dashboard"
-	@echo "  make dashboard    Launch Streamlit operations dashboard"
-	@echo ""
-	@echo "Development"
-	@echo "  make test         Run all tests"
-	@echo "  make mlflow       Launch MLflow UI"
-	@echo "  make drift-report Open drift report in browser"
-	@echo ""
+.DEFAULT_GOAL := help
 
-# ── Setup ─────────────────────────────────────────────────────────────────────
-setup:
-	python src/bike_sharing/data/make_dataset.py
-	python src/bike_sharing/data/shift_dates.py
+.PHONY: help
+help:	## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-repro:
+# --- Environment ---
+.PHONY: install
+install:	## Install runtime dependencies + this package (editable)
+	$(PYTHON) -m pip install -r requirements.txt
+	$(PYTHON) -m pip install -e .
+
+# --- Setup (run once) ---
+.PHONY: setup repro
+setup:	## Download the dataset and initialize the simulation (run once)
+	$(PYTHON) src/bike_sharing/data/make_dataset.py
+	$(PYTHON) src/bike_sharing/data/shift_dates.py
+
+repro:	## Run the full DVC pipeline (build_features -> train -> evaluate)
 	dvc repro
 
-# ── Simulation ────────────────────────────────────────────────────────────────
-update:
-	python src/bike_sharing/data/update_simulation.py
+# --- Simulation ---
+.PHONY: update predict
+update:	## Reveal new records from future to past (with data-quality validation)
+	$(PYTHON) src/bike_sharing/data/update_simulation.py
 
-predict:
-	python src/bike_sharing/data/update_simulation.py
-	python src/bike_sharing/models/predict.py
+predict:	## Update the simulation and forecast the h+1..h+12 trajectory
+	$(PYTHON) src/bike_sharing/data/update_simulation.py
+	$(PYTHON) src/bike_sharing/models/predict.py
 
-# ── Monitoring ────────────────────────────────────────────────────────────────
-drift:
-	python src/bike_sharing/monitoring/drift_detection.py
+# --- Monitoring ---
+.PHONY: drift drift-report performance output-drift suggest-thresholds retrain retrain-force
+drift:	## Run input-drift detection
+	$(PYTHON) src/bike_sharing/monitoring/drift_detection.py
 
-retrain:
-	python src/bike_sharing/models/retrain.py
+drift-report:	## Open the latest Evidently drift report (HTML)
+	open artifacts/drift/drift_report.html
 
-retrain-force:
-	python src/bike_sharing/models/retrain.py training.force_retrain=true
+performance:	## Compute rolling live-performance metrics vs. seasonal-naive baseline
+	$(PYTHON) src/bike_sharing/monitoring/performance_monitoring.py
 
-# ── Dashboard ─────────────────────────────────────────────────────────────────
-dashboard:
+output-drift:	## Run output (prediction) drift detection
+	$(PYTHON) src/bike_sharing/monitoring/output_drift_detection.py
+
+suggest-thresholds:	## Suggest drift/degradation thresholds from accumulated history (12+ weeks)
+	$(PYTHON) src/bike_sharing/monitoring/suggest_thresholds.py
+
+retrain:	## Retrain and promote if a trigger fires and enough new data exists
+	$(PYTHON) src/bike_sharing/models/retrain.py
+
+retrain-force:	## Force a retrain regardless of drift/performance
+	$(PYTHON) src/bike_sharing/models/retrain.py training.force_retrain=true
+
+# --- Dashboard ---
+.PHONY: dashboard
+dashboard:	## Launch the Streamlit operations dashboard
 	streamlit run src/bike_sharing/dashboard/app.py
 
-# ── Development ───────────────────────────────────────────────────────────────
-test:
+# --- Development ---
+.PHONY: lint format test mlflow
+lint:	## Lint with ruff (matches CI)
+	ruff check .
+
+format:	## Auto-format with ruff (writes changes — CI only checks)
+	ruff format .
+
+test:	## Run the test suite
 	pytest tests/ -v
 
-mlflow:
+mlflow:	## Launch the MLflow UI locally
 	mlflow ui
 
-drift-report:
-	open artifacts/drift/drift_report.html
+# --- Reset ---
+.PHONY: delete-simulation
+delete-simulation:	## Wipe all simulation state, predictions, and monitoring history (destructive; requires FORCE=1)
+	@if [ "$(FORCE)" != "1" ]; then \
+		echo "This will permanently delete:"; \
+		echo "  - simulation state + past/future/shifted data (data/simulation_state.json, data/raw/hour_*.csv)"; \
+		echo "  - predictions log + last retrain marker (data/predictions/, data/last_retrain.json)"; \
+		echo "  - drift/performance/output-drift history + validation flag (artifacts/drift/, artifacts/monitoring/, artifacts/validation/)"; \
+		echo "  - matching .dvc pointer files"; \
+		echo ""; \
+		echo "Trained models (artifacts/models/, artifacts/evaluation/) are NOT touched."; \
+		echo ""; \
+		echo "Re-run with FORCE=1 to actually delete: make delete-simulation FORCE=1"; \
+		exit 1; \
+	fi
+	rm -f data/simulation_state.json data/simulation_state.json.dvc
+	rm -f data/raw/hour_past.csv data/raw/hour_past.csv.dvc
+	rm -f data/raw/hour_future.csv data/raw/hour_future.csv.dvc
+	rm -f data/raw/hour_shifted.csv
+	rm -rf data/predictions/
+	rm -f data/last_retrain.json data/last_retrain.json.dvc
+	rm -f artifacts/drift/drift_detected.json artifacts/drift/drift_report.html
+	rm -f artifacts/monitoring/drift_history.csv artifacts/monitoring/output_drift_history.csv artifacts/monitoring/performance_history.csv artifacts/monitoring/retrain_outcome.json
+	rm -f artifacts/validation/hourly_validation.json
+	@echo "Simulation state wiped. Run 'make setup' to start over."

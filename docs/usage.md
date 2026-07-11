@@ -31,11 +31,10 @@ How to install, configure, initialize, and run the project locally. For *what* t
 ```bash
 conda create -n bike-sharing-forecast python=3.11 -y
 conda activate bike-sharing-forecast
-pip install -r requirements.txt
-pip install -e .
+make install
 ```
 
-`requirements.txt` is compiled from `requirements.in`; install from the pinned `.txt` for a reproducible environment.
+`make install` runs `pip install -r requirements.txt` (pinned, reproducible — compiled from `requirements.in`) followed by `pip install -e .`.
 
 ---
 
@@ -86,7 +85,16 @@ make predict    # reveal new records (with data-quality validation) and forecast
 make dashboard  # launch the operations dashboard
 ```
 
-> ⚠️ Run `make setup` only once. The simulation state is protected — re-running it aborts with a warning. To reset, delete `data/simulation_state.json` explicitly and re-run.
+> ⚠️ Run `make setup` only once. The simulation state is protected — re-running it aborts with a warning.
+
+To start over — e.g. to change `reference_date` or `future_pct` — wipe the simulation state, predictions, and monitoring history with:
+
+```bash
+make delete-simulation          # dry run: prints exactly what would be deleted, deletes nothing
+make delete-simulation FORCE=1  # actually deletes it
+```
+
+This removes `data/simulation_state.json`, the past/future/shifted raw data, the prediction log, `data/last_retrain.json`, and all drift/performance/output-drift/validation history under `artifacts/` — plus their `.dvc` pointer files. **Trained models (`artifacts/models/`, `artifacts/evaluation/`) are left untouched** — this resets the *simulation*, not the *pipeline*. Follow with `make setup && make repro` to start a fresh run.
 
 ---
 
@@ -105,21 +113,30 @@ docker compose up --build
 
 ## 6. Make Commands
 
-`make help` prints this list. Every action is a short `make` target rather than a long Python command.
+`make help` prints this list (self-documenting — each target's description comes from a `## ` comment next to it in the `Makefile`). Every action is a short `make` target rather than a long Python command.
 
 | Command | Description |
 |---|---|
+| `make install` | Install runtime dependencies + this package (editable) |
 | `make setup` | Download the dataset and initialize the simulation (run once) |
 | `make repro` | Run the full DVC pipeline (build_features + train + evaluate) |
 | `make update` | Reveal new records from future to past (with data-quality validation) |
 | `make predict` | Update the simulation and forecast the h+1…h+12 trajectory |
 | `make drift` | Run input-drift detection |
 | `make drift-report` | Open the latest Evidently drift report (HTML) |
+| `make performance` | Compute rolling live-performance metrics vs. seasonal-naive baseline |
+| `make output-drift` | Run output (prediction) drift detection |
+| `make suggest-thresholds` | Suggest drift/degradation thresholds from accumulated history (12+ weeks) |
 | `make retrain` | Retrain and promote if a trigger fires and enough new data exists |
-| `make retrain-force` | Force a retrain regardless of drift (`training.force_retrain=true`) |
+| `make retrain-force` | Force a retrain regardless of drift/performance (`training.force_retrain=true`) |
 | `make dashboard` | Launch the Streamlit operations dashboard |
+| `make lint` | Lint with `ruff check` (matches CI) |
+| `make format` | Auto-format with `ruff format` (writes changes — CI only checks) |
 | `make test` | Run the test suite (`pytest tests/ -v`) |
 | `make mlflow` | Launch the MLflow UI locally |
+| `make delete-simulation FORCE=1` | Wipe all simulation state, predictions, and monitoring history (see § 4) |
+
+`weekly_report.py` and `hourly_alert.py` deliberately have no `make` target — both can file real GitHub issues (via your local `gh` session) or send real emails, which isn't something a casual local command should trigger. Run them directly with `python -m ...` when you actually mean to.
 
 ---
 
@@ -147,12 +164,12 @@ Any Hydra value can be overridden on the command line, e.g. `make retrain-force`
 ## 8. Development
 
 ```bash
-ruff check .            # lint (matches CI)
-ruff format --check .   # format check (matches CI)
-pytest tests/ -v        # 156 unit tests
+make lint    # ruff check .        — matches CI
+make format  # ruff format .       — writes changes (CI only checks: ruff format --check .)
+make test    # pytest tests/ -v   — 156 unit tests
 ```
 
-CI (`.github/workflows/ci.yml`) runs all three on every push and pull request.
+CI (`.github/workflows/ci.yml`) runs `ruff check`, `ruff format --check`, and the test suite on every push and pull request.
 
 ---
 
