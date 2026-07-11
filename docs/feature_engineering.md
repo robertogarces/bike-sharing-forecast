@@ -80,7 +80,7 @@ If the morning commuter peak (8 AM) is high, the afternoon peak (5–6 PM) tends
 **Lag features and the production use case**  
 The model is designed for **next-hour forecasting**: given conditions and history up to hour H, predict demand at hour H+1. In this setting all lag features are available — `cnt_lag_1` at H+1 is simply the observed demand at H, which is known at prediction time.
 
-For multi-day horizon forecasting, short-term lags would not be available and would need to be imputed. Validation experiments (see `notebooks/03_batch_scoring_validation.ipynb`) showed that imputing `cnt_lag_1` through `cnt_lag_8` causes RMSE to nearly double (~45 → ~87), confirming that next-hour forecasting is the appropriate use case for this model.
+For horizons beyond H+1, short-term lags are not directly observed and imputing them causes RMSE to nearly double (~45 → ~87) — this is why naive imputation was rejected as a way to reach multi-hour forecasting (see `notebooks/03_batch_scoring_validation.ipynb`). Production instead reaches multi-horizon forecasting a different way: by recursively feeding the model's own predictions back in as synthetic lags, rather than imputing missing ones. This doesn't change the model itself — it is still trained and validated only on H+1 — it changes how it's *served*. See [`docs/forecasting.md`](forecasting.md) for the full design.
 
 ---
 
@@ -200,10 +200,10 @@ When a Random Forest was trained with all lag features included, `cnt_lag_1` cap
 ## 8. Limitations
 
 **Lag features assume continuous hourly data**  
-If the system is restarted after a gap (e.g. missing hours in `hour_past.csv`), lag features will reference incorrect historical values. The current implementation does not detect or handle gaps in the time series.
+If the system is restarted after a gap (e.g. missing hours in `hour_past.csv`), lag features will reference incorrect historical values. The current implementation does not detect or handle gaps in the time series. This limitation is horizon-agnostic — it applies the same way regardless of how far ahead a prediction is served — but its consequences compound in the recursive multi-horizon rollout: a bad lag at step 1 propagates through every subsequent step of the walk-forward trajectory. See [`docs/forecasting.md`](forecasting.md) for how the rollout works.
 
 **Weather features are from the dataset, not a live API**  
-In a real production system, temperature, humidity, and weather condition would come from a weather forecast API for the next hour. In this simulation, they are taken from the historical dataset — the model sees the actual weather values, not forecast values. This means the model's real-world performance would likely be slightly worse than reported metrics suggest.
+In a real production system, temperature, humidity, and weather condition would come from a weather forecast API for the next hour. In this simulation, they are taken from the historical dataset — the model sees the actual weather values, not forecast values. This means the model's real-world performance would likely be slightly worse than reported metrics suggest. For horizons beyond H+1, this caveat compounds further: production approximates future weather with a lag-24h proxy rather than an observed value at all — see [`docs/forecasting.md`](forecasting.md) § 4.
 
 **No external features**  
 Events (concerts, sports, holidays not in the dataset), infrastructure changes, or pricing changes are not captured. These could cause large prediction errors in edge cases.
