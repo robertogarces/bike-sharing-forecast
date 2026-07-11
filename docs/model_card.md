@@ -20,7 +20,7 @@ This document describes the bike sharing demand forecasting model following the 
 
 **Model type:** LightGBM Gradient Boosted Trees (regression)  
 **Architecture:** Two separate models — one for `registered` riders, one for `casual` riders  
-**Prediction horizon:** Next hour (H+1 given data up to H)  
+**Prediction horizon:** Trained and validated on H+1 only. Served in production as a recursive h+1..h+12 trajectory — see [`docs/forecasting.md`](forecasting.md) for how the model is rolled out across multiple lead times without retraining.  
 **Output:** Predicted total bike demand (bikes per hour)  
 **Target during training:** `log(registered + 1)` and `log(casual + 1)` separately; predictions are back-transformed with `expm1` and summed  
 **Hyperparameter tuning:** Optuna with 50 trials, optimising RMSE on the validation set  
@@ -89,7 +89,7 @@ RMSLE penalises relative errors rather than absolute ones, treating a 50-bike er
 
 ### Not recommended for
 
-- **Multi-day demand forecasting** — the model relies on short-term lag features (1–3 hours) that are not available beyond next-hour prediction. Validation experiments showed RMSE rises sharply (~51 → ~87) when these lags are imputed for D+1 forecasting. See `notebooks/03_batch_scoring_validation.ipynb`.
+- **Forecasting far beyond the primary horizon** — production does serve a multi-hour trajectory (h+1 through h+12) via recursive rollout rather than imputing missing lags (see [`docs/forecasting.md`](forecasting.md)), but forecast skill decays with lead time: `notebooks/04_experimento_horizontes.ipynb` and `05_multi_horizon_forecasting.ipynb` show the model's advantage over a seasonal-naive baseline narrowing past ~h+12 and flattening around ~h+18. This is exactly why `primary_horizon` is pinned to h+1 for all retrain/drift gating — only that lead time is treated as equivalent to the validation RMSE reported in this card.
 - **Other cities or systems** — the model was trained exclusively on Washington D.C. Capital Bikeshare data. Demand patterns, weather sensitivities, and seasonal cycles reflect that specific city and infrastructure. Do not expect accurate predictions for other cities without retraining on local data.
 - **Event-driven demand spikes** — the model has no knowledge of special events (concerts, marathons, protests). Large crowd events can produce demand spikes that fall far outside the training distribution.
 - **Real-time operational decisions requiring sub-hour precision** — the model predicts at hourly granularity. It is not designed for minute-level dispatch decisions.
@@ -98,7 +98,7 @@ RMSLE penalises relative errors rather than absolute ones, treating a 50-bike er
 
 ## 5. How to Interpret Predictions
 
-The model outputs a single number: the predicted total bike demand for the next hour. This should be interpreted as an **estimate of expected demand**, not a guaranteed count.
+For each origin hour, the model outputs a trajectory of predicted total bike demand across the next several hours (h+1 through h+12 — see [`docs/forecasting.md`](forecasting.md)). Each value should be interpreted as an **estimate of expected demand**, not a guaranteed count, and the h+1 prediction is the most reliable point in the trajectory — accuracy degrades gradually at longer lead times.
 
 **Practical interpretation:**  
 If the model predicts 200 bikes for the next hour, the actual demand is likely to fall within roughly ±51 bikes of that figure (one RMSE). However, errors are not uniformly distributed — peak hours (8 AM, 5–6 PM on weekdays) tend to have larger absolute errors because demand variability is highest during those periods.
@@ -148,7 +148,7 @@ Models are versioned and managed in the MLflow Model Registry hosted on DagsHub.
 | `archived` alias | Previous production model, superseded by a better version |
 
 **Promotion logic:**  
-A newly trained model is promoted to `production` only if its RMSE on the validation set is lower than the current production model's RMSE. If the new model does not improve, it is archived and the existing production model continues to serve predictions. This prevents performance regressions caused by retraining on noisy or insufficient new data.
+Rather than promoting `registered` and `casual` independently, retraining evaluates all four combinations of (registered, casual) × (new, production) using their actual summed prediction RMSE on the validation set, and promotes whichever combination has the lowest combined RMSE — which can mean a mixed pair (a new model for one target, the existing production model for the other). Because the current production pair is always one of the four candidates compared, this can never regress combined accuracy. See [`docs/architecture.md`](architecture.md) § 5 for the full rationale.
 
 **Retraining triggers:**  
 - **Drift-triggered:** Weekly drift detection exceeds the configured threshold (default: 50% of features drifted) and at least 720 hours of new data have accumulated.
