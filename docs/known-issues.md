@@ -7,33 +7,37 @@ are worth hardening. Ordered by severity.
 
 ---
 
-## 🟠 Medium — Non-atomic model promotion in `retrain.py`
+## 🟠 Medium — No rollback if promotion fails mid-loop in `retrain.py`
 
-**Where:** `src/bike_sharing/models/retrain.py` (`main` → two `promote_if_better` calls)
+**Where:** `src/bike_sharing/models/retrain.py` (`main` → `evaluate_promotion_combinations` → `choose_best_combination` → `promote_best_combination`)
 
-The `registered` and `casual` models are promoted independently and sequentially:
+Promotion no longer decides `registered`/`casual` independently — it evaluates
+all four combinations of (registered, casual) × (new, production) using actual
+summed and clipped predictions on the same `val.csv`, and promotes whichever
+combination has the lowest combined RMSE (defaulting to keeping the current
+pair on a tie). Since the current production pair is always one of the four
+evaluated candidates, this design means promotion **can never choose a worse
+combination than what's already deployed** — a mixed pair (e.g. new
+`registered` + old `casual`) is now an intentional, RMSE-validated outcome, not
+an accidental risk.
 
-```python
-promoted_registered = promote_if_better(client, model_name=f"{cfg.project}-registered", ...)
-promoted_casual     = promote_if_better(client, model_name=f"{cfg.project}-casual", ...)
-```
-
-The `registered` call writes the `production` alias first. If the `casual` call
-fails midway (MLflow network error, timeout), production ends up with:
-
-- `registered@production` → **new** model
-- `casual@production` → **old** model
-
-`predict.py` loads both and sums them, so this silently combines a new
-`registered` model with an old `casual` model — an untested combination that
-degrades predictions without any visible failure. The `if promoted_registered
-and promoted_casual` check only logs a warning; it does not roll back.
+The residual risk is narrower: `promote_best_combination`'s loop sets the
+`production` alias for whichever slot(s) the chosen combination requires. If
+this loop fails partway through (MLflow network error, timeout) after
+re-aliasing `registered` but before `casual`, production ends up with a pair
+that was **never one of the four evaluated/validated combinations** — the one
+scenario the RMSE comparison doesn't protect against, because it happens after
+the comparison already picked a winner.
 
 **Why it matters:** same "silent degradation" failure mode as the backfill bug.
-Retraining is weekly, so a desync would take a while to notice.
+Retraining is weekly, so a desync would take a while to notice. Note that as of
+`b68b1bb` (see Resolved below), a genuine MLflow failure during the
+*evaluation* stage now propagates loudly instead of being silently swallowed —
+this entry is specifically about a failure during the *alias-setting* stage,
+which remains unguarded.
 
-**Suggested fix:** decide both promotions first, then apply the aliases only if
-both should proceed (or wrap with rollback). Add a regression test.
+**Suggested fix:** apply both aliases atomically, or roll back the first if the
+second fails. Add a regression test for the partial-failure path specifically.
 
 ---
 
@@ -110,3 +114,23 @@ positional and consistent), but it degrades the feature's meaning around gaps.
   a duplicate of the current hour with the wrong `hr`. Fixed with loop-local
   variables; corrupted live-era predictions regenerated; regression test added
   (`tests/test_predict.py::test_run_main_prediction_uses_next_hour_not_backfill`).
+
+- **Transient MLflow errors mistaken for bootstrap** (fixed in `b68b1bb`):
+  `get_production_baseline_rmse()` and `evaluate_promotion_combinations()` in
+  `retrain.py` caught bare `MlflowException`, treating *any* error — including
+  transient/auth/network failures — the same as "no production model exists
+  yet." This could silently disable the performance-degradation gate, or
+  promote both new models unconditionally with no real comparison against
+  production. Fixed by checking `e.error_code == RESOURCE_DOES_NOT_EXIST`
+  specifically; every other MLflow exception now propagates and fails the job.
+
+- **Drift reference snapshot desync on casual-only promotions** (fixed in
+  `b68b1bb`): the drift reference snapshot (a copy of drift-relevant training
+  features, attached as an MLflow artifact at promotion time so the drift
+  reference reflects what production actually learned from) was briefly
+  changed to target whichever model actually promoted (registered or casual).
+  But `drift_detection.py::_load_reference_snapshot()` only ever reads from
+  `{project}-registered`'s production run — so a casual-only promotion wrote
+  the snapshot somewhere never read, silently falling back to the stale/live
+  reference. Fixed by always targeting the registered run's artifact,
+  regardless of which model(s) actually promoted.
