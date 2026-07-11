@@ -1,12 +1,15 @@
 # Data
 pandas
 numpy
+kaggle
+pyyaml
 
 # ML
 lightgbm
 scikit-learn
 optuna
 shap
+matplotlib
 
 # MLOps
 mlflow

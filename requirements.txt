@@ -58,6 +58,8 @@ attrs==26.1.0
     #   sqltrie
 billiard==4.2.4
     # via celery
+bleach==6.4.0
+    # via kaggle
 blinker==1.9.0
     # via
     #   flask
@@ -170,6 +172,8 @@ faker==40.21.0
     # via polyfactory
 fastapi==0.136.3
     # via mlflow-skinny
+fastjsonschema==2.21.2
+    # via nbformat
 filelock==3.29.0
     # via iterative-telemetry
 flask==3.1.3
@@ -276,6 +280,14 @@ jsonschema==4.26.0
     # via altair
 jsonschema-specifications==2025.9.1
     # via jsonschema
+jupyter-core==5.9.1
+    # via nbformat
+jupytext==1.19.4
+    # via kaggle
+kaggle==2.2.3
+    # via -r requirements.in
+kagglesdk==0.1.34
+    # via kaggle
 kiwisolver==1.5.0
     # via matplotlib
 kombu==5.6.2
@@ -304,7 +316,11 @@ markupsafe==3.0.3
     #   mako
     #   werkzeug
 matplotlib==3.10.9
-    # via mlflow
+    # via
+    #   -r requirements.in
+    #   mlflow
+mdit-py-plugins==0.6.1
+    # via jupytext
 mdurl==0.1.2
     # via markdown-it-py
 mlflow==3.13.0
@@ -326,6 +342,8 @@ mypy-extensions==1.1.0
     # via typing-inspect
 narwhals==2.22.1
     # via altair
+nbformat==5.10.4
+    # via jupytext
 networkx==3.6.1
     # via dvc
 nltk==3.9.4
@@ -384,6 +402,8 @@ packaging==26.2
     #   dvc
     #   gunicorn
     #   hydra-core
+    #   jupytext
+    #   kaggle
     #   kombu
     #   matplotlib
     #   mlflow-skinny
@@ -434,6 +454,8 @@ propcache==0.5.2
 protobuf==6.33.6
     # via
     #   databricks-sdk
+    #   kaggle
+    #   kagglesdk
     #   mlflow-skinny
     #   mlflow-tracing
     #   opentelemetry-proto
@@ -493,21 +515,27 @@ python-dateutil==2.9.0.post0
     # via
     #   celery
     #   graphene
+    #   kaggle
     #   matplotlib
     #   pandas
 python-dotenv==1.2.2
     # via
     #   -r requirements.in
+    #   kaggle
     #   mlflow-skinny
     #   pydantic-settings
     #   uvicorn
 python-multipart==0.0.32
     # via streamlit
+python-slugify==8.0.4
+    # via kaggle
 pytz==2026.2
     # via pandas
 pyyaml==6.0.3
     # via
+    #   -r requirements.in
     #   evidently
+    #   jupytext
     #   litestar
     #   mlflow-skinny
     #   omegaconf
@@ -527,6 +555,8 @@ requests==2.34.2
     #   dvc-studio-client
     #   evidently
     #   iterative-telemetry
+    #   kaggle
+    #   kagglesdk
     #   mlflow-skinny
     #   streamlit
 rich==15.0.0
@@ -618,6 +648,8 @@ tenacity==9.1.4
     # via
     #   plotly
     #   streamlit
+text-unidecode==1.3
+    # via python-slugify
 threadpoolctl==3.6.0
     # via scikit-learn
 toml==0.10.2
@@ -629,10 +661,15 @@ tqdm==4.67.3
     #   dvc
     #   dvc-data
     #   fsspec
+    #   kaggle
     #   nltk
     #   optuna
     #   scmrepo
     #   shap
+traitlets==5.15.1
+    # via
+    #   jupyter-core
+    #   nbformat
 typer==0.26.3
     # via
     #   evidently
@@ -682,6 +719,7 @@ urllib3==2.7.0
     #   docker
     #   dulwich
     #   evidently
+    #   kaggle
     #   requests
 uvicorn[standard]==0.48.0
     # via
@@ -707,6 +745,8 @@ wcwidth==0.8.0
     # via
     #   prettytable
     #   prompt-toolkit
+webencodings==0.5.1
+    # via bleach
 websockets==16.0
     # via
     #   streamlit
