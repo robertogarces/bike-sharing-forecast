@@ -698,6 +698,7 @@ def test_run_main_prediction_uses_next_hour_not_backfill(monkeypatch, tmp_path):
 
     cfg = _run_cfg(raw_dir, pred_path, state_path, tmp_path / "artifacts", horizon=1)
 
+    monkeypatch.setattr(predict_mod, "setup_mlflow", lambda: None)
     monkeypatch.setattr(mlflow.lightgbm, "load_model", lambda *a, **k: _FakeModel())
     monkeypatch.setattr(predict_mod, "MlflowClient", lambda: _FakeMlflowClient())
 
@@ -743,6 +744,7 @@ def test_run_serves_full_trajectory_with_horizon_greater_than_one(monkeypatch, t
 
     cfg = _run_cfg(raw_dir, pred_path, state_path, tmp_path / "artifacts", horizon=6)
 
+    monkeypatch.setattr(predict_mod, "setup_mlflow", lambda: None)
     monkeypatch.setattr(mlflow.lightgbm, "load_model", lambda *a, **k: _FakeModel())
     monkeypatch.setattr(predict_mod, "MlflowClient", lambda: _FakeMlflowClient())
 
@@ -838,6 +840,7 @@ def test_run_uses_fallback_trajectory_when_validation_flag_invalid(monkeypatch, 
 
     cfg = _run_cfg(raw_dir, pred_path, state_path, artifacts_dir, horizon=3)
 
+    monkeypatch.setattr(predict_mod, "setup_mlflow", lambda: None)
     monkeypatch.setattr(mlflow.lightgbm, "load_model", lambda *a, **k: _FakeModel())
     monkeypatch.setattr(predict_mod, "MlflowClient", lambda: _FakeMlflowClient())
 
@@ -884,6 +887,7 @@ def test_run_skips_horizons_without_lag168_when_invalid(monkeypatch, tmp_path):
 
     cfg = _run_cfg(raw_dir, pred_path, state_path, artifacts_dir, horizon=3)
 
+    monkeypatch.setattr(predict_mod, "setup_mlflow", lambda: None)
     monkeypatch.setattr(mlflow.lightgbm, "load_model", lambda *a, **k: _FakeModel())
     monkeypatch.setattr(predict_mod, "MlflowClient", lambda: _FakeMlflowClient())
 
