@@ -224,15 +224,17 @@ max_backfill_hours: 48
 To restart the simulation from scratch — for example, to change `reference_date` or `future_pct` — wipe the simulation state and re-initialize:
 
 ```bash
-make delete-simulation          # dry run: prints exactly what would be deleted, deletes nothing
-make delete-simulation FORCE=1  # actually deletes it
+make reset-simulation          # dry run: prints exactly what would be deleted, deletes nothing
+make reset-simulation FORCE=1  # actually deletes it
 
 # Re-initialize
 make setup
 make repro
 ```
 
-`delete-simulation` removes the state file, the past/future/shifted raw data, the prediction log, `data/last_retrain.json`, and all accumulated drift/performance/output-drift/validation history under `artifacts/` (plus their `.dvc` pointer files) — everything that constitutes *this run* of the simulation. It deliberately leaves `artifacts/models/` and `artifacts/evaluation/` untouched, since the trained model belongs to the static pipeline, not the simulation.
+`reset-simulation` removes the state file, the past/future/shifted raw data, the prediction log, `data/last_retrain.json`, and all accumulated drift/performance/output-drift/validation history under `artifacts/` (plus their `.dvc` pointer files) — everything that constitutes *this run* of the simulation. It deliberately leaves `artifacts/models/` and `artifacts/evaluation/` untouched, since the trained model belongs to the static pipeline, not the simulation.
+
+To wipe the trained model and raw dataset too — e.g. to verify the project builds from a truly empty clone — use `make delete-all FORCE=1` instead. See [Setup & Usage § 4](usage.md#4-initialize-and-run) for what it additionally removes.
 
 ⚠️ **This is destructive.** The prediction log and any retraining/monitoring history will be lost. The MLflow experiment history on DagsHub is not affected — model versions and runs remain.
 

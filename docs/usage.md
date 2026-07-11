@@ -90,11 +90,13 @@ make dashboard  # launch the operations dashboard
 To start over — e.g. to change `reference_date` or `future_pct` — wipe the simulation state, predictions, and monitoring history with:
 
 ```bash
-make delete-simulation          # dry run: prints exactly what would be deleted, deletes nothing
-make delete-simulation FORCE=1  # actually deletes it
+make reset-simulation          # dry run: prints exactly what would be deleted, deletes nothing
+make reset-simulation FORCE=1  # actually deletes it
 ```
 
 This removes `data/simulation_state.json`, the past/future/shifted raw data, the prediction log, `data/last_retrain.json`, and all drift/performance/output-drift/validation history under `artifacts/` — plus their `.dvc` pointer files. **Trained models (`artifacts/models/`, `artifacts/evaluation/`) are left untouched** — this resets the *simulation*, not the *pipeline*. Follow with `make setup && make repro` to start a fresh run.
+
+To go further and wipe absolutely everything — the trained models, processed features, and the raw downloaded dataset itself — use `make delete-all FORCE=1` instead. This is the "prove it's reproducible from an empty clone" command: it removes everything `reset-simulation` does, plus `data/processed/{train,val}.csv`, `artifacts/models/`, `artifacts/evaluation/`, and `data/raw/{hour,day}.csv`. You'll need `make setup` (which re-downloads from Kaggle) and `make repro` to rebuild from scratch afterward.
 
 ---
 
@@ -134,7 +136,8 @@ docker compose up --build
 | `make format` | Auto-format with `ruff format` (writes changes — CI only checks) |
 | `make test` | Run the test suite (`pytest tests/ -v`) |
 | `make mlflow` | Launch the MLflow UI locally |
-| `make delete-simulation FORCE=1` | Wipe all simulation state, predictions, and monitoring history (see § 4) |
+| `make reset-simulation FORCE=1` | Reset the live simulation; keeps the trained model (see § 4) |
+| `make delete-all FORCE=1` | Wipe everything generated, including the trained model and raw dataset (see § 4) |
 
 `weekly_report.py` and `hourly_alert.py` deliberately have no `make` target — both can file real GitHub issues (via your local `gh` session) or send real emails, which isn't something a casual local command should trigger. Run them directly with `python -m ...` when you actually mean to.
 
