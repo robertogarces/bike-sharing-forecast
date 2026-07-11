@@ -20,15 +20,16 @@ Bike sharing operators face a constant operational question: **how many bikes wi
 
 This project builds an end-to-end system that forecasts hourly bike demand and operates as if it were live in production. It is a continuously running pipeline with versioned data, tracked experiments, automated retraining, drift monitoring, and an operations dashboard.
 
-The system predicts demand for the **next hour** given current conditions and recent history, splitting predictions between **registered** (commuters) and **casual** (recreational) riders, which follow very different daily patterns.
+The system predicts demand for the **next twelve hours** given current conditions and recent history, splitting predictions between **registered** (commuters) and **casual** (recreational) riders, which follow very different daily patterns. See [`docs/forecasting.md`](docs/forecasting.md) for how a single next-hour model is served as a multi-hour forecast.
 
 ---
 
 ## Operations Dashboard
 
-The operations dashboard shows the next-hour forecast, a 24-hour prediction history, the registered-vs-casual breakdown, and model performance explained in plain language for non-technical operators.
+The Streamlit dashboard has two pages: **Operations**, built for what an operator should act on right now (a next-12-hours forecast trajectory, next peak/quietest hours), and **Monitoring**, built for whether the model is healthy (live performance, drift status, retrain outcomes). See [`docs/architecture.md`](docs/architecture.md#dashboard) for the full breakdown.
 
 ![Dashboard](docs/assets/dashboard.png)
+*Screenshot predates the dashboard redesign — kept for now as a placeholder.*
 
 ---
 
@@ -71,7 +72,7 @@ flowchart LR
     reg --> predict
 
     cronW(["GitHub Actions<br/>weekly · automatic"]) --> drift{"drift detected?"}
-    drift -->|yes| retrain[retrain] -.->|promote if better| reg
+    drift -->|yes| retrain[retrain] -.->|promote best combo| reg
     drift -->|no| keep["keep current model"]
 
     deploy(["GitHub Actions<br/>manual · OIDC"]) --> endpoint["Azure Online Endpoint<br/>score.py"] --> api["REST API<br/>registered · casual · total"]
@@ -82,7 +83,7 @@ flowchart LR
 ```
 
 - **Hourly:** reveal newly-arrived records, predict the next hour, log the prediction.
-- **Weekly:** check for data drift; if drift exceeds a threshold (and enough new data exists), retrain and promote the new model only if it beats the current production model.
+- **Weekly:** check for data drift; if drift exceeds a threshold (and enough new data exists), retrain and promote whichever (registered, casual) combination has the lowest combined RMSE — see [`docs/architecture.md`](docs/architecture.md#5-key-design-decisions) for why this can produce a mixed pair.
 
 See [`docs/architecture.md`](docs/architecture.md) for the full design.
 
@@ -294,7 +295,7 @@ bike-sharing/
 │   ├── monitoring/         # drift_detection
 │   ├── dashboard/          # Streamlit app
 │   └── utils/              # MLflow setup
-├── tests/                  # 41 unit tests
+├── tests/                  # 156 unit tests
 ├── artifacts/
 │   ├── models/             # Trained model files
 │   ├── evaluation/         # Metrics, SHAP, residual plots
@@ -334,6 +335,7 @@ bike-sharing/
 | Document | Contents |
 |---|---|
 | [Architecture](docs/architecture.md) | System design, static vs dynamic layers, data flow, key decisions |
+| [Multi-Horizon Forecasting](docs/forecasting.md) | Recursive trajectory serving, per-horizon monitoring, primary-horizon filtering, dashboard charts |
 | [Feature Engineering](docs/feature_engineering.md) | EDA insights, engineered features, mutual information ranking, decisions |
 | [Model Card](docs/model_card.md) | Model description, metrics, intended use, limitations |
 | [Simulation](docs/simulation.md) | How the simulation works, initialization, reset, configuration |
