@@ -193,7 +193,6 @@ bike-sharing/
 │   ├── monitoring/             # drift_detection, output_drift_detection,
 │   │                           #   performance_monitoring, hourly_alert, weekly_report, suggest_thresholds
 │   ├── dashboard/              # Streamlit app (Operations + Monitoring pages)
-│   ├── visualization/          # plotting helpers
 │   └── utils/                  # alerting, mlflow_utils, datetime_utils, monitoring_utils,
 │                               #   simulation_utils, command_utils
 ├── tests/                      # 156 unit tests (20 modules)
