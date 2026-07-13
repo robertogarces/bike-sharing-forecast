@@ -1,15 +1,15 @@
 {
-  "timestamp": "2026-07-10T06:18:31.779855",
+  "timestamp": "2026-07-13T02:06:57.344782",
   "n_features": 19,
-  "n_drifted": 13,
-  "drift_share": 0.6842,
+  "n_drifted": 10,
+  "drift_share": 0.5263,
   "drift_detected": true,
   "threshold": 0.5,
   "drift_by_column": {
     "cnt_lag_1": {
       "stattest": "K-S p_value",
-      "score": 0.0,
-      "drifted": true
+      "score": 0.1309,
+      "drifted": false
     },
     "cnt_lag_168": {
       "stattest": "K-S p_value",
@@ -18,22 +18,22 @@
     },
     "cnt_lag_2": {
       "stattest": "K-S p_value",
-      "score": 0.0,
-      "drifted": true
+      "score": 0.1309,
+      "drifted": false
     },
     "cnt_lag_24": {
       "stattest": "K-S p_value",
-      "score": 0.0,
+      "score": 0.0149,
       "drifted": true
     },
     "cnt_lag_3": {
       "stattest": "K-S p_value",
-      "score": 0.0,
-      "drifted": true
+      "score": 0.1309,
+      "drifted": false
     },
     "cnt_lag_48": {
       "stattest": "K-S p_value",
-      "score": 0.0,
+      "score": 0.0004,
       "drifted": true
     },
     "cnt_lag_72": {
@@ -43,7 +43,7 @@
     },
     "cnt_lag_8": {
       "stattest": "K-S p_value",
-      "score": 0.0,
+      "score": 0.0452,
       "drifted": true
     },
     "cnt_rolling_mean_168": {
@@ -98,7 +98,7 @@
     },
     "weathersit": {
       "stattest": "chi-square p_value",
-      "score": 0.0001,
+      "score": 0.0,
       "drifted": true
     }
   }
