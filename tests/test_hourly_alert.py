@@ -56,7 +56,9 @@ def test_build_data_quality_alert_content():
 
 def test_main_sends_nothing_when_no_triggers(monkeypatch, tmp_path):
     calls = []
-    monkeypatch.setattr(hourly_alert, "create_github_issue", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(
+        hourly_alert, "create_github_issue", lambda *a, **k: calls.append(a) or True
+    )
     monkeypatch.setattr(hourly_alert, "send_email", lambda *a, **k: calls.append(a))
 
     hourly_alert.main.__wrapped__(_cfg(tmp_path))
@@ -83,7 +85,9 @@ def test_main_triggers_only_output_drift(monkeypatch, tmp_path):
     ).to_csv(history_path, index=False)
 
     issue_calls = []
-    monkeypatch.setattr(hourly_alert, "create_github_issue", lambda *a, **k: issue_calls.append(a))
+    monkeypatch.setattr(
+        hourly_alert, "create_github_issue", lambda *a, **k: issue_calls.append(a) or True
+    )
     monkeypatch.setattr(hourly_alert, "send_email", lambda *a, **k: None)
 
     hourly_alert.main.__wrapped__(_cfg(tmp_path))
@@ -115,7 +119,9 @@ def test_main_triggers_both_independently_when_both_occur(monkeypatch, tmp_path)
     validation_path.write_text('{"n_rows_checked": 1, "valid": false, "issues": ["bad row"]}')
 
     issue_calls = []
-    monkeypatch.setattr(hourly_alert, "create_github_issue", lambda *a, **k: issue_calls.append(a))
+    monkeypatch.setattr(
+        hourly_alert, "create_github_issue", lambda *a, **k: issue_calls.append(a) or True
+    )
     monkeypatch.setattr(hourly_alert, "send_email", lambda *a, **k: None)
 
     hourly_alert.main.__wrapped__(_cfg(tmp_path))
@@ -123,3 +129,51 @@ def test_main_triggers_both_independently_when_both_occur(monkeypatch, tmp_path)
     assert len(issue_calls) == 2
     labels = {c[2][0] for c in issue_calls}
     assert labels == {"output-drift-alert", "data-quality-alert"}
+
+
+# ── main(): email gated on create_github_issue's return value ──────────────────
+
+
+def _drift_history(tmp_path):
+    history_path = tmp_path / "monitoring" / "output_drift_history.csv"
+    history_path.parent.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            {
+                "n_drifted": 3,
+                "n_features": 3,
+                "drift_share": 1.0,
+                "drift_detected": True,
+                "threshold": 0.3,
+                "drifted_pred_total": True,
+                "drifted_pred_registered": True,
+                "drifted_pred_casual": True,
+            }
+        ]
+    ).to_csv(history_path, index=False)
+
+
+def test_main_sends_email_when_github_issue_is_new(monkeypatch, tmp_path):
+    _drift_history(tmp_path)
+
+    monkeypatch.setenv("ALERT_EMAIL_TO", "someone@example.com")
+    email_calls = []
+    monkeypatch.setattr(hourly_alert, "create_github_issue", lambda *a, **k: True)
+    monkeypatch.setattr(hourly_alert, "send_email", lambda *a, **k: email_calls.append(a))
+
+    hourly_alert.main.__wrapped__(_cfg(tmp_path))
+
+    assert len(email_calls) == 1
+
+
+def test_main_skips_email_when_github_issue_is_duplicate(monkeypatch, tmp_path):
+    _drift_history(tmp_path)
+
+    monkeypatch.setenv("ALERT_EMAIL_TO", "someone@example.com")
+    email_calls = []
+    monkeypatch.setattr(hourly_alert, "create_github_issue", lambda *a, **k: False)
+    monkeypatch.setattr(hourly_alert, "send_email", lambda *a, **k: email_calls.append(a))
+
+    hourly_alert.main.__wrapped__(_cfg(tmp_path))
+
+    assert email_calls == []
