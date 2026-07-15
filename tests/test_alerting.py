@@ -23,9 +23,10 @@ def test_create_github_issue_creates_when_no_recent_duplicate(monkeypatch):
 
     monkeypatch.setattr(alerting, "run_command", fake_run_command)
 
-    alerting.create_github_issue("Title", "Body", ["output-drift-alert"])
+    result = alerting.create_github_issue("Title", "Body", ["output-drift-alert"])
 
     assert any(c[:3] == ["gh", "issue", "create"] for c in calls)
+    assert result is True
 
 
 def test_create_github_issue_skips_when_recent_duplicate_exists(monkeypatch):
@@ -40,9 +41,10 @@ def test_create_github_issue_skips_when_recent_duplicate_exists(monkeypatch):
 
     monkeypatch.setattr(alerting, "run_command", fake_run_command)
 
-    alerting.create_github_issue("Title", "Body", ["output-drift-alert"], dedup_hours=24)
+    result = alerting.create_github_issue("Title", "Body", ["output-drift-alert"], dedup_hours=24)
 
     assert not any(c[:3] == ["gh", "issue", "create"] for c in calls)
+    assert result is False
 
 
 def test_create_github_issue_creates_when_existing_is_older_than_window(monkeypatch):
@@ -57,9 +59,10 @@ def test_create_github_issue_creates_when_existing_is_older_than_window(monkeypa
 
     monkeypatch.setattr(alerting, "run_command", fake_run_command)
 
-    alerting.create_github_issue("Title", "Body", ["output-drift-alert"], dedup_hours=24)
+    result = alerting.create_github_issue("Title", "Body", ["output-drift-alert"], dedup_hours=24)
 
     assert any(c[:3] == ["gh", "issue", "create"] for c in calls)
+    assert result is True
 
 
 # ── _markdown_to_html ────────────────────────────────────────────────────────

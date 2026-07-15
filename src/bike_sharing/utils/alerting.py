@@ -45,12 +45,19 @@ def _markdown_to_html(body: str) -> str:
     return "\n".join(lines_html)
 
 
-def create_github_issue(title: str, body: str, labels: list[str], dedup_hours: int = 24) -> None:
+def create_github_issue(title: str, body: str, labels: list[str], dedup_hours: int = 24) -> bool:
     """
     Create a GitHub issue via `gh issue create`, unless an open issue with the
     same primary label was already created within the last dedup_hours — this
     stops an ongoing, already-reported condition (e.g. drift still present
     every hour) from spamming a new issue every run.
+
+    Returns
+    -------
+    bool
+        True if a new issue was created, False if skipped as a duplicate.
+        Callers use this to also gate the companion email alert, which has no
+        dedup mechanism of its own.
     """
     dedup_label = labels[0]
     result = run_command(
@@ -66,12 +73,13 @@ def create_github_issue(title: str, body: str, labels: list[str], dedup_hours: i
                 f"Skipping issue creation — an open '{dedup_label}' issue already exists "
                 f"from within the last {dedup_hours}h"
             )
-            return
+            return False
 
     run_command(
         ["gh", "issue", "create", "--title", title, "--body", body, "--label", ",".join(labels)]
     )
     logger.info(f"Created GitHub issue: {title}")
+    return True
 
 
 def send_email(subject: str, body: str, to: str) -> None:

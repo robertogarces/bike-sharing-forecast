@@ -208,7 +208,11 @@ def main(cfg: DictConfig) -> None:
     body = build_weekly_digest(drift_summary, retrain_outcome, performance_summary, horizon_curve)
     title = f"Weekly Monitoring Report — {utc_now():%Y-%m-%d}"
 
-    create_github_issue(title, body, [cfg.alerting.weekly_report_label], cfg.alerting.dedup_hours)
+    created = create_github_issue(
+        title, body, [cfg.alerting.weekly_report_label], cfg.alerting.dedup_hours
+    )
+    if not created:
+        return
 
     to = os.environ.get("ALERT_EMAIL_TO")
     if to:

@@ -61,7 +61,9 @@ def _load_last_output_drift_row(path: Path) -> dict | None:
 
 
 def _dispatch(title: str, body: str, label: str, cfg: DictConfig, email_to: str | None) -> None:
-    create_github_issue(title, body, [label], cfg.alerting.dedup_hours)
+    created = create_github_issue(title, body, [label], cfg.alerting.dedup_hours)
+    if not created:
+        return
     if email_to:
         send_email(title, body, email_to)
     else:
