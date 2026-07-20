@@ -1,7 +1,7 @@
 {
-  "timestamp": "2026-07-13T02:07:01.551420",
+  "timestamp": "2026-07-20T02:20:01.204878",
   "retrain_attempted": false,
-  "skip_reason": "insufficient new hours: 301/720 required",
+  "skip_reason": "insufficient new hours: 468/720 required",
   "data_quality_checked": false,
   "data_quality_passed": null,
   "data_quality_issues": [],
@@ -12,5 +12,5 @@
   "combination_rmses": null,
   "performance_degraded": false,
   "baseline_rmse": 50.643404051926474,
-  "live_rmse": 56.261483917677175
+  "live_rmse": 39.68406150458896
 }
