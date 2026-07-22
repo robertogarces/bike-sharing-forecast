@@ -1,5 +1,5 @@
 outs:
-- md5: 0975871bbb7f905c6cbb42c56b879122
-  size: 41923
+- md5: f48f78b83b5019e677898f95fb4c19ab
+  size: 41785
   hash: md5
   path: hour_future.csv
