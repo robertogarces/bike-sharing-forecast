@@ -193,3 +193,4 @@ timestamp,n_features,n_drifted,drift_share,drift_detected,threshold,drifted_pred
 2026-07-23T12:45:29.556520,3,3,1.0,True,0.5,True,True,True
 2026-07-23T15:18:53.201970,3,3,1.0,True,0.5,True,True,True
 2026-07-23T17:40:42.403097,3,3,1.0,True,0.5,True,True,True
+2026-07-23T19:38:34.329404,3,2,0.6667,True,0.5,True,False,True
