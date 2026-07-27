@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-07-20T02:19:56.584788",
+  "timestamp": "2026-07-27T02:15:22.972177",
   "n_features": 19,
   "n_drifted": 14,
   "drift_share": 0.7368,
@@ -7,98 +7,98 @@
   "threshold": 0.5,
   "drift_by_column": {
     "cnt_lag_1": {
-      "stattest": "Wasserstein distance (normed)",
-      "score": 0.6857,
+      "stattest": "K-S p_value",
+      "score": 0.0,
       "drifted": true
     },
     "cnt_lag_168": {
-      "stattest": "Wasserstein distance (normed)",
-      "score": 0.2249,
+      "stattest": "K-S p_value",
+      "score": 0.0,
       "drifted": true
     },
     "cnt_lag_2": {
-      "stattest": "Wasserstein distance (normed)",
-      "score": 0.6861,
+      "stattest": "K-S p_value",
+      "score": 0.0,
       "drifted": true
     },
     "cnt_lag_24": {
-      "stattest": "Wasserstein distance (normed)",
-      "score": 0.5661,
+      "stattest": "K-S p_value",
+      "score": 0.0,
       "drifted": true
     },
     "cnt_lag_3": {
-      "stattest": "Wasserstein distance (normed)",
-      "score": 0.6842,
+      "stattest": "K-S p_value",
+      "score": 0.0,
       "drifted": true
     },
     "cnt_lag_48": {
-      "stattest": "Wasserstein distance (normed)",
-      "score": 0.4138,
+      "stattest": "K-S p_value",
+      "score": 0.0,
       "drifted": true
     },
     "cnt_lag_72": {
-      "stattest": "Wasserstein distance (normed)",
-      "score": 0.3312,
+      "stattest": "K-S p_value",
+      "score": 0.0,
       "drifted": true
     },
     "cnt_lag_8": {
-      "stattest": "Wasserstein distance (normed)",
-      "score": 0.6672,
+      "stattest": "K-S p_value",
+      "score": 0.0,
       "drifted": true
     },
     "cnt_rolling_mean_168": {
-      "stattest": "Wasserstein distance (normed)",
-      "score": 1.5946,
+      "stattest": "K-S p_value",
+      "score": 0.0,
       "drifted": true
     },
     "cnt_rolling_mean_24": {
-      "stattest": "Wasserstein distance (normed)",
-      "score": 1.963,
+      "stattest": "K-S p_value",
+      "score": 0.0,
       "drifted": true
     },
     "hr_cos": {
-      "stattest": "Wasserstein distance (normed)",
-      "score": 0.005,
+      "stattest": "K-S p_value",
+      "score": 0.2994,
       "drifted": false
     },
     "hr_sin": {
-      "stattest": "Wasserstein distance (normed)",
-      "score": 0.0059,
+      "stattest": "K-S p_value",
+      "score": 0.2442,
       "drifted": false
     },
     "hr_weekend": {
-      "stattest": "Wasserstein distance (normed)",
-      "score": 0.0731,
+      "stattest": "K-S p_value",
+      "score": 0.9958,
       "drifted": false
     },
     "hr_workday": {
-      "stattest": "Wasserstein distance (normed)",
-      "score": 0.0574,
+      "stattest": "K-S p_value",
+      "score": 0.9955,
       "drifted": false
     },
     "hr_x_season": {
-      "stattest": "Wasserstein distance (normed)",
-      "score": 0.2129,
+      "stattest": "K-S p_value",
+      "score": 0.0,
       "drifted": true
     },
     "hum": {
-      "stattest": "Wasserstein distance (normed)",
-      "score": 0.2201,
+      "stattest": "K-S p_value",
+      "score": 0.0,
       "drifted": true
     },
     "is_rush_hour": {
-      "stattest": "Jensen-Shannon distance",
-      "score": 0.0094,
+      "stattest": "Z-test p_value",
+      "score": 0.7912,
       "drifted": false
     },
     "temp": {
-      "stattest": "Wasserstein distance (normed)",
-      "score": 0.6306,
+      "stattest": "K-S p_value",
+      "score": 0.0,
       "drifted": true
     },
     "weathersit": {
-      "stattest": "Jensen-Shannon distance",
-      "score": 0.1164,
+      "stattest": "chi-square p_value",
+      "score": 0.0,
       "drifted": true
     }
   }
