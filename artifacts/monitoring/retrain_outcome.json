@@ -1,16 +1,21 @@
 {
-  "timestamp": "2026-07-27T02:15:27.418294",
-  "retrain_attempted": false,
-  "skip_reason": "insufficient new hours: 635/720 required",
-  "data_quality_checked": false,
-  "data_quality_passed": null,
+  "timestamp": "2026-08-03T02:09:22.719721",
+  "retrain_attempted": true,
+  "skip_reason": null,
+  "data_quality_checked": true,
+  "data_quality_passed": true,
   "data_quality_issues": [],
-  "new_rmse": null,
-  "prod_rmse": null,
-  "promoted_registered": null,
-  "promoted_casual": null,
-  "combination_rmses": null,
+  "new_rmse": 49.302833733366526,
+  "prod_rmse": 50.1720153629341,
+  "promoted_registered": true,
+  "promoted_casual": false,
+  "combination_rmses": {
+    "new+new": 49.302833733366526,
+    "new+prod": 48.417106423143025,
+    "prod+new": 50.728819038449316,
+    "prod+prod": 50.1720153629341
+  },
   "performance_degraded": false,
   "baseline_rmse": 50.643404051926474,
-  "live_rmse": 46.35641928501997
+  "live_rmse": 34.23312693520568
 }

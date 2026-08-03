@@ -5,52 +5,56 @@ stages:
     deps:
     - path: configs/config.yaml
       hash: md5
-      md5: 45334c9cca3fb84a5fb1d96d3c00cba2
-      size: 199
+      md5: dc64eda2baec5607ce2ae50702c534f5
+      size: 267
     - path: configs/features/default.yaml
       hash: md5
       md5: a88da66f9e1bf0c3c3ca5b2617d50f3c
       size: 234
     - path: data/raw/hour_past.csv
       hash: md5
-      md5: 3839c157fccec9351fe1d5cf59018781
-      size: 1066477
+      md5: 1fd7afee1ede496205075e7fe67496b0
+      size: 1120564
     - path: src/bike_sharing/features/build_features.py
       hash: md5
-      md5: 7de8664504032eaf8797b3c86345bc4b
-      size: 7902
+      md5: b5580158bcc2aec464b8c396c7e96051
+      size: 7834
     outs:
     - path: data/processed/train.csv
       hash: md5
-      md5: 6fd2e59e83cfd3e1e75a2e945690e26e
-      size: 3124577
+      md5: 1338fe4c4d5d0556997f224fcd0dceb0
+      size: 3284782
     - path: data/processed/val.csv
       hash: md5
-      md5: 90ab94918c137be8b217f3cc6c9b38af
-      size: 802689
+      md5: 099c6b1c112a6bd494d3f556c8991030
+      size: 840574
   train:
     cmd: python src/bike_sharing/models/train.py
     deps:
     - path: configs/config.yaml
       hash: md5
-      md5: 45334c9cca3fb84a5fb1d96d3c00cba2
-      size: 199
+      md5: dc64eda2baec5607ce2ae50702c534f5
+      size: 267
+    - path: configs/model/best_params.yaml
+      hash: md5
+      md5: 02eb4a90917939370e755d3cde643d0d
+      size: 236
     - path: configs/model/lgbm.yaml
       hash: md5
       md5: 4a696cc23fff5d869ac8efb5578feb3c
       size: 750
     - path: data/processed/train.csv
       hash: md5
-      md5: 6fd2e59e83cfd3e1e75a2e945690e26e
-      size: 3124577
+      md5: 1338fe4c4d5d0556997f224fcd0dceb0
+      size: 3284782
     - path: data/processed/val.csv
       hash: md5
-      md5: 90ab94918c137be8b217f3cc6c9b38af
-      size: 802689
+      md5: 099c6b1c112a6bd494d3f556c8991030
+      size: 840574
     - path: src/bike_sharing/models/train.py
       hash: md5
-      md5: 860896e29049142a2c4ff1a92cdaf4d3
-      size: 10912
+      md5: 2313ba2f4bd0da404ef308bd9910b6b1
+      size: 11093
     params:
       configs/model/lgbm.yaml:
         n_trials: 50
@@ -59,57 +63,57 @@ stages:
     outs:
     - path: artifacts/models/lgbm_casual.txt
       hash: md5
-      md5: d2ba48311cbb6003204b802b8dda396e
-      size: 5840513
+      md5: 99e77999b7125c0ebbb0ba884b650b2d
+      size: 6052152
     - path: artifacts/models/lgbm_registered.txt
       hash: md5
-      md5: 1e5fe1d61dfc3645b2cf880f9e960717
-      size: 6056649
+      md5: b5d2b4e2bf6207a2907c7887fe238c1c
+      size: 6196780
   evaluate:
     cmd: python src/bike_sharing/models/evaluate.py
     deps:
     - path: artifacts/models/lgbm_casual.txt
       hash: md5
-      md5: d2ba48311cbb6003204b802b8dda396e
-      size: 5840513
+      md5: 99e77999b7125c0ebbb0ba884b650b2d
+      size: 6052152
     - path: artifacts/models/lgbm_registered.txt
       hash: md5
-      md5: 1e5fe1d61dfc3645b2cf880f9e960717
-      size: 6056649
+      md5: b5d2b4e2bf6207a2907c7887fe238c1c
+      size: 6196780
     - path: configs/config.yaml
       hash: md5
-      md5: 45334c9cca3fb84a5fb1d96d3c00cba2
-      size: 199
+      md5: dc64eda2baec5607ce2ae50702c534f5
+      size: 267
     - path: data/processed/val.csv
       hash: md5
-      md5: 90ab94918c137be8b217f3cc6c9b38af
-      size: 802689
+      md5: 099c6b1c112a6bd494d3f556c8991030
+      size: 840574
     - path: src/bike_sharing/models/evaluate.py
       hash: md5
-      md5: 8652261c803af85e3f9dfd9e05110070
-      size: 7856
+      md5: 31291b040f505a548ddc8b2127d478e5
+      size: 8209
     outs:
     - path: artifacts/evaluation/actual_vs_predicted.png
       hash: md5
-      md5: 05921b7a07c77f2583c0b76e2f3a92f8
-      size: 154932
+      md5: 157c3f4bc080e3f55955a374a21b8866
+      size: 150067
     - path: artifacts/evaluation/demand_over_time.png
       hash: md5
-      md5: 39d01dac73a1736cc66177cd8b281faa
-      size: 118718
+      md5: b16488bfad3a8ac013b51438a58debdd
+      size: 114721
     - path: artifacts/evaluation/metrics.json
       hash: md5
-      md5: 596d35752b5b79283cf12448dabd8a0d
-      size: 91
+      md5: 83915d71d51f9150b3b9f10c929fef11
+      size: 120
     - path: artifacts/evaluation/residuals.png
       hash: md5
-      md5: 35231a27e81c6dcfa0412224a85bc49a
-      size: 172844
+      md5: ccb403e07309046b5486e8e3bfc34f0d
+      size: 174721
     - path: artifacts/evaluation/shap_casual.png
       hash: md5
-      md5: ae906fc69fdf0b3dbe4b85031c1204b5
-      size: 178871
+      md5: b60d95519272850d7b03607a1e7df8dd
+      size: 185155
     - path: artifacts/evaluation/shap_registered.png
       hash: md5
-      md5: 302da780e6419818b99d056487742426
-      size: 171740
+      md5: d47ea0a927ab323fd52bc1579053ccb4
+      size: 169815
